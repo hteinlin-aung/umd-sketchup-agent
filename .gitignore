@@ -1,0 +1,12 @@
+node_modules/
+.env
+runs/
+coverage/
+dist/
+
+# SketchUp files never go in the repo (large, and they are your design work)
+*.skp
+*.skb
+
+.DS_Store
+Thumbs.db
