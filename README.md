@@ -78,7 +78,7 @@ No `.env` is needed on the Mac: without one, everything uses the mock.
    containing one line: `UMD_DEV_`
    (only models whose path contains that text can be changed).
 5. Restart SketchUp. **Extensions ▸ UMD Bridge ▸ Status** should say RUNNING.
-   The Ruby Console (Extensions ▸ Developer ▸ Ruby Console) shows `[UMD Bridge 0.1.1] watching …`.
+   The Ruby Console (Extensions ▸ Developer ▸ Ruby Console) shows `[UMD Bridge 0.1.2] watching …`.
 
 **Each test**
 

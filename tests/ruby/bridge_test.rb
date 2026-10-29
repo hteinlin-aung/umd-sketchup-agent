@@ -128,6 +128,20 @@ class BridgeLoopTest < Minitest::Test
     UMDBridge::Tools.singleton_class.send(:alias_method, :ping, :real_ping)
   end
 
+  def test_no_open_model_never_crashes_the_timer
+    Sketchup.active_model = nil # Windows: nothing open, e.g. right after closing a model
+    UMDBridge.instance_variable_set(:@last_beat, Time.at(0))
+    UMDBridge.tick
+    assert_equal '', JSON.parse(File.read(File.join(@dir, 'heartbeat.json')))['modelPath']
+    ping = send_cmd('ping')
+    assert ping['ok'], 'ping must still answer with no model open'
+    assert_equal '', ping['data']['modelPath']
+    assert_equal 'WRONG_MODEL', send_cmd('getModelInfo')['error']['code']
+    assert_equal 'WRONG_MODEL', send_cmd('saveCopy', { 'fileName' => 'x.skp' })['error']['code']
+    log = File.read(File.join(@dir, 'bridge_log.jsonl'))
+    refute_includes log, 'tick_error'
+  end
+
   def test_unknown_tool_is_refused
     assert_equal 'UNKNOWN_TOOL', send_cmd('eval_ruby', { 'code' => '1+1' })['error']['code']
   end

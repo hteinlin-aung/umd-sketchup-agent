@@ -1,6 +1,6 @@
 {
   "name": "umd-sketchup-agent",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "AI-assisted modelling for SketchUp 2025: written instructions -> validated operations -> fixed Ruby tools -> checked, saved copy.",
   "type": "module",

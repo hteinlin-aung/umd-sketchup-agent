@@ -12,7 +12,7 @@ module UMDBridge
         'rubyVersion' => RUBY_VERSION,
         'isPro' => Sketchup.is_pro? ? true : false,
         'modelPath' => ctx[:model_path],
-        'modelTitle' => model.title.to_s,
+        'modelTitle' => model ? model.title.to_s : '',
         'targetPattern' => ctx[:target_pattern],
         'tools' => UMDBridge.tools.keys
       }

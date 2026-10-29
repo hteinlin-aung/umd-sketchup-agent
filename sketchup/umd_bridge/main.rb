@@ -41,7 +41,7 @@ module UMDBridge
   end
 
   def self.version
-    '0.1.1'
+    '0.1.2'
   end
 
   def self.protocol
@@ -168,6 +168,9 @@ module UMDBridge
       kind = tools[tool]
       raise ToolError.new('UNKNOWN_TOOL', "no tool called \"#{tool}\"") unless kind
       args = Validate.public_send(tool, cmd['args'])
+      if kind != :always && Sketchup.active_model.nil?
+        raise ToolError.new('WRONG_MODEL', 'no model is open in SketchUp')
+      end
       guard!(tool, kind, ctx)
       data =
         if kind == :write
@@ -238,8 +241,11 @@ module UMDBridge
     }
   end
 
+  # Sketchup.active_model is nil on Windows while no model is open (e.g. just after
+  # closing one) - Windows test, 2026-10-29. Treat that as "no path", never crash.
   def self.model_path
-    Sketchup.active_model.path.to_s.tr('\\', '/')
+    model = Sketchup.active_model
+    model ? model.path.to_s.tr('\\', '/') : ''
   end
 
   def self.target_pattern
