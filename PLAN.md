@@ -1,6 +1,6 @@
 # UMD SketchUp Agent — PLAN
 
-*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: Week 1 code written, mock-tested; waiting for the first real Windows run*
+*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: **Week 1 DONE 2026-10-29** (all 8 checks on Windows) · Week 2 next*
 
 ## Summary
 
@@ -198,7 +198,7 @@ contain platform-specific binaries). Run `npm install` separately on the Mac and
 
 ## 7. Week-by-week milestones
 
-### Week 1 (Oct 29 – Nov 4): TypeScript drives real SketchUp
+### Week 1 (Oct 29 – Nov 4): TypeScript drives real SketchUp — ✅ DONE 2026-10-29
 - Set up the repo on the Mac. Private GitHub repo `umd-sketchup-agent`. Clone on Windows.
 - Ruby `UMD Bridge`: queue, model guard, whitelist, undo wrapping, log.
 - Tools: `ping`, `getModelInfo`, `createBox`, `applyMaterial`, `captureView`, `saveCopy`.
@@ -319,3 +319,5 @@ result, check results, fixes tried, screenshots, the saved file, and what's stil
 - 2026-10-29: Week 1 code written. TypeScript: config, protocol (envelope + 6 tools), BridgeClient, FileQueueTransport (heartbeat, cancel-if-not-picked-up, STILL_RUNNING), MockSketchUp, smoke test. Ruby: UMD Bridge (0.5 s timer, one command per tick, target.txt guard, MASTER protection, one undo step + abort, measured verification, JSONL log). Verified in a cloud workspace: typecheck clean, 73 Vitest tests, 56 Ruby tests (shared argument cases + bridge loop with a fake SketchUp), smoke:mock 10/10. **Not yet run in real SketchUp.**
 - 2026-10-29 (evening): First real Windows run (commit 6b06bda, UMD_DEV_1F.skp 336 MB). ping ✅, steps 1–6 ✅ (box 4.000×3.000×3.200 m, 0 mm error; 6/6 faces painted; PNG ✅; copy saved 335.8 MB in 26.4 s). Stopped before 6b/7 because of **heartbeat starvation**: SketchUp can't write a heartbeat while a tool runs, so after the 26 s saveCopy the next command saw a 26 s-old heartbeat (limit 10 s) and failed with NO_HEARTBEAT. Fix (bridge 0.1.1): heartbeat written just before each tool (`busy: {id, since}`) and just after each result; the client treats a recent "busy" heartbeat as alive and waits up to 8 s for a stale one to recover; runSmoke now keeps earlier PASS lines and records a bridge failure as one FAIL step. Measured timings on the big model: captureView ~8.5 s, saveCopy ~26 s.
 - 2026-10-29 (night): Windows retest with bridge 0.1.1 → **smoke 10/10**, copy reopens with the box (Week 1 items 1–5 and 8 done). Fixed in 0.1.2: `Sketchup.active_model` is nil while no model is open → `model_path` crashed the timer (tick_error); now ping still answers, other tools return WRONG_MODEL. Still to test for Week 1: MASTER refusal (with a tiny `dev/UMD_DEV_MASTER_test.skp`) and "SketchUp closed" behaviour. Noted for Week 2: getModelInfo truncates lists at maxItems (the model summary must page or filter); 336 MB dev model makes saveCopy ~25 s / captureView ~7 s → add a small dev model for fast tool testing.
+- 2026-10-29 (late): **Week 1 DONE** with bridge 0.1.2 (commit b1fe3c0). MASTER refusal ✅ (empty `dev/UMD_DEV_MASTER_test.skp`: createBox + applyMaterial → MASTER_PROTECTED, nothing drawn). SketchUp closed ✅ (bridge stopped → "No heartbeat"; SketchUp quit → "heartbeat is 22 s old"; nothing left in in/). No tick_error under 0.1.2. New fast dev model `dev/UMD_DEV_1F_reception.skp` (76 MB; smoke 10/10; captureView 1.9 s, saveCopy 5.6 s vs 6.7 s / 24.8 s on the 336 MB model). Note: that model still contains the template figure "ThomThom" (z 0.011–1.867 m); delete it so model bounds start at the reception floor (~1.489 m).
+
