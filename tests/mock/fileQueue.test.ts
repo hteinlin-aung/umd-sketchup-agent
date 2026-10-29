@@ -14,7 +14,8 @@ import { FakeBridge } from "../helpers/fakeBridge";
 let dir: string;
 let bridge: FakeBridge;
 
-const transport = (timeoutMs = 2_000) => new FileQueueTransport({ queueDir: dir, timeoutMs, pollMs: 10, heartbeatMaxAgeMs: 1_000 });
+const transport = (timeoutMs = 2_000, heartbeatMaxAgeMs = 1_000) =>
+  new FileQueueTransport({ queueDir: dir, timeoutMs, pollMs: 10, heartbeatMaxAgeMs, heartbeatGraceMs: 200 });
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "umd-queue-"));
@@ -50,6 +51,36 @@ describe("FileQueueTransport (mock bridge)", () => {
   it("fails fast when the heartbeat is stale (SketchUp closed or frozen)", async () => {
     bridge.beat(new Date(Date.now() - 60_000));
     await expect(new BridgeClient(transport()).call("ping", {})).rejects.toMatchObject({ reason: "NO_HEARTBEAT" });
+  });
+
+  it("a tool that runs longer than the heartbeat limit does not break the NEXT command (Windows bug, 2026-10-29)", async () => {
+    // Real run: saveCopy took 26 s, the heartbeat limit was 10 s, and the next command
+    // failed with NO_HEARTBEAT even though SketchUp was fine. Here: 400 ms tool vs 150 ms limit.
+    bridge.stop();
+    bridge = new FakeBridge(dir, 400);
+    bridge.start(20);
+    const client = new BridgeClient(transport(3_000, 150));
+    const first = await client.call("saveCopy", { fileName: "slow.skp" });
+    expect(first.ok).toBe(true);
+    const second = await client.call("saveCopy", { fileName: "slow.skp" }); // sent immediately after
+    expect(!second.ok && second.error.code).toBe("FILE_EXISTS");
+  });
+
+  it("treats a 'busy' heartbeat as alive, even when it is older than the limit", async () => {
+    bridge.beat(new Date(Date.now() - 5_000), { id: "20261029-000000-aaaaaa", since: new Date().toISOString() });
+    await expect(transport(30_000).ensureBridgeAlive()).resolves.toBeUndefined();
+  });
+
+  it("gives up on a 'busy' heartbeat older than the command timeout (SketchUp crashed mid-tool)", async () => {
+    bridge.beat(new Date(Date.now() - 60_000), { id: "20261029-000000-bbbbbb", since: new Date().toISOString() });
+    await expect(transport(2_000).ensureBridgeAlive()).rejects.toMatchObject({ reason: "NO_HEARTBEAT" });
+  });
+
+  it("waits a moment for a stale heartbeat to recover instead of failing at once", async () => {
+    bridge.beat(new Date(Date.now() - 60_000));
+    setTimeout(() => bridge.start(), 80); // bridge comes back within the grace period
+    const res = await new BridgeClient(transport()).call("ping", {});
+    expect(res.ok).toBe(true);
   });
 
   it("cancels a command nobody picked up, so it can never run later", async () => {

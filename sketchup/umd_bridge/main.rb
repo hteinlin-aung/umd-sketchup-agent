@@ -7,8 +7,8 @@
 # What it will NEVER do: run Ruby code sent to it, change the MASTER model, or
 # change a model whose path does not match target.txt.
 # Protocol: src/protocol/envelope.ts and src/protocol/tools.ts in the same repo.
-# Runs the bridge loop, checks the model, and manages tool execution
 
+# Runs the bridge loop, checks the model, and manages tool execution
 require 'json'
 require 'time'
 require 'fileutils'
@@ -41,7 +41,7 @@ module UMDBridge
   end
 
   def self.version
-    '0.1.0'
+    '0.1.1'
   end
 
   def self.protocol
@@ -121,12 +121,16 @@ module UMDBridge
     @busy = false
   end
 
-  def self.heartbeat
+  # Written every ~2 s between commands, and ALWAYS just before and just after a
+  # command runs. SketchUp can't write anything WHILE a tool runs (one thread), so
+  # "busy" tells the sender: alive, working on <id> since <time> - don't give up.
+  def self.heartbeat(force: false, busy: nil)
     now = Time.now
-    return if now - @last_beat < HEARTBEAT_SECONDS
+    return if !force && now - @last_beat < HEARTBEAT_SECONDS
     @last_beat = now
     write_json(File.join(@queue_dir, 'heartbeat.json'),
-               'pid' => Process.pid, 't' => now.utc.iso8601(3), 'bridgeVersion' => version, 'modelPath' => model_path)
+               'pid' => Process.pid, 't' => now.utc.iso8601(3), 'bridgeVersion' => version,
+               'modelPath' => model_path, 'busy' => busy)
   end
 
   def self.process(file)
@@ -143,8 +147,10 @@ module UMDBridge
     if File.exist?(out)
       log('id' => id, 'event' => 'duplicate_ignored')
     else
+      heartbeat(force: true, busy: { 'id' => id, 'since' => Time.now.utc.iso8601(3) })
       result = execute(id, File.read(working, encoding: 'UTF-8'))
       write_json(out, result)
+      heartbeat(force: true) # fresh again the moment the result exists
       log('id' => id, 'tool' => result['tool'], 'event' => 'done', 'ok' => result['ok'],
           'code' => result['error'] && result['error']['code'], 'ms' => result['durationMs'])
     end

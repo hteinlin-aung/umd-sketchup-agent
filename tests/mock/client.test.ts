@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BridgeClient, newCommandId } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
+import { BridgeUnavailableError } from "../../src/bridge/transport";
+import type { Command, Result } from "../../src/protocol/envelope";
 import { runSmoke } from "../../src/smoke/runSmoke";
 
 // MOCK: these test the TypeScript side against a fake SketchUp that follows the
@@ -17,6 +19,29 @@ describe("smoke test against the mock", () => {
     const steps = await runSmoke(client, "test");
     expect(steps.filter((s) => !s.pass)).toEqual([]);
     expect(steps.length).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("smoke test when SketchUp stops answering half-way", () => {
+  it("keeps the steps that already passed and adds one FAIL line", async () => {
+    class DiesOnSecondSave extends MockSketchUp {
+      saves = 0;
+      override async send(c: Command): Promise<Result> {
+        if (c.tool === "saveCopy" && ++this.saves === 2) throw new BridgeUnavailableError("heartbeat 26 s old", "NO_HEARTBEAT");
+        return super.send(c);
+      }
+    }
+    const steps = await runSmoke(new BridgeClient(new DiesOnSecondSave()), "test");
+    expect(steps.filter((s) => s.pass).map((s) => s.step)).toEqual([
+      "1 ping",
+      "2 getModelInfo",
+      "3 createBox",
+      "4 applyMaterial",
+      "5 captureView",
+      "6 saveCopy",
+    ]);
+    expect(steps.at(-1)).toMatchObject({ step: "bridge", pass: false });
+    expect(steps.at(-1)!.detail).toContain("NO_HEARTBEAT");
   });
 });
 

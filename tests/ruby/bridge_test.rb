@@ -3,6 +3,7 @@
 # master protection, undo wrapping, duplicates, heartbeat.
 # It does NOT test real geometry - that needs SketchUp on Windows (npm run smoke).
 require 'json'
+require 'time'
 require 'tmpdir'
 require 'fileutils'
 require 'minitest/autorun'
@@ -107,6 +108,24 @@ class BridgeLoopTest < Minitest::Test
     UMDBridge.tick
     beat = JSON.parse(File.read(File.join(@dir, 'heartbeat.json')))
     assert_equal DEV, beat['modelPath']
+  end
+
+  def test_heartbeat_says_busy_during_a_tool_and_is_fresh_right_after_it
+    seen = nil
+    hb = File.join(@dir, 'heartbeat.json')
+    UMDBridge::Tools.singleton_class.send(:alias_method, :real_ping, :ping)
+    UMDBridge::Tools.define_singleton_method(:ping) do |a, c|
+      seen = JSON.parse(File.read(hb)) # what a sender would see WHILE the tool runs
+      real_ping(a, c)
+    end
+    UMDBridge.instance_variable_set(:@last_beat, Time.now) # a normal tick would NOT beat now
+    send_cmd('ping', id: 'beat-000001')
+    assert_equal 'beat-000001', seen['busy']['id']
+    after = JSON.parse(File.read(hb))
+    assert_nil after['busy'], 'heartbeat must be fresh and not busy once the result is written'
+    assert_operator Time.now - Time.parse(after['t']), :<, 2
+  ensure
+    UMDBridge::Tools.singleton_class.send(:alias_method, :ping, :real_ping)
   end
 
   def test_unknown_tool_is_refused

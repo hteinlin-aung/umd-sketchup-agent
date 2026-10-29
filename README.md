@@ -78,7 +78,7 @@ No `.env` is needed on the Mac: without one, everything uses the mock.
    containing one line: `UMD_DEV_`
    (only models whose path contains that text can be changed).
 5. Restart SketchUp. **Extensions ▸ UMD Bridge ▸ Status** should say RUNNING.
-   The Ruby Console (Extensions ▸ Developer ▸ Ruby Console) shows `[UMD Bridge 0.1.0] watching …`.
+   The Ruby Console (Extensions ▸ Developer ▸ Ruby Console) shows `[UMD Bridge 0.1.1] watching …`.
 
 **Each test**
 
@@ -103,6 +103,9 @@ if you don't want the test box in it.
 | `MASTER_PROTECTED` | Working as intended: the master can't be changed |
 | `NOT_PICKED_UP` | SketchUp was busy or frozen; the command was cancelled and will not run later |
 | `STILL_RUNNING` | SketchUp took the command but hasn't finished. Don't resend; watch `out/` |
+
+Long tools are normal on the big model (2026-10-29, 336 MB dev copy): `captureView` about 8 s, `saveCopy` about 26 s.
+The heartbeat says `busy` while a tool runs, so the client waits instead of giving up.
 
 Every command is logged in `agent_queue/bridge_log.jsonl`. The original command files are kept in `done/`.
 

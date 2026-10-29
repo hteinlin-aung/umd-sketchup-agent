@@ -9,19 +9,23 @@ import type { Command } from "../../src/protocol/envelope";
  * keeps heartbeat.json fresh. Lets us test FileQueueTransport on any machine.
  */
 export class FakeBridge {
-  readonly sketchup = new MockSketchUp();
+  readonly sketchup: MockSketchUp;
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   /** When true, commands are moved to working/ but never answered (simulates a long job). */
   hang = false;
 
-  constructor(private readonly dir: string) {
+  constructor(
+    private readonly dir: string,
+    toolDelayMs = 0,
+  ) {
+    this.sketchup = new MockSketchUp({ delayMs: toolDelayMs });
     for (const d of ["in", "working", "out", "done"]) mkdirSync(join(dir, d), { recursive: true });
   }
 
-  beat(at = new Date()): void {
+  beat(at = new Date(), busy: { id: string; since: string } | null = null): void {
     const f = join(this.dir, "heartbeat.json");
-    writeFileSync(`${f}.tmp`, JSON.stringify({ t: at.toISOString(), bridgeVersion: "fake" }));
+    writeFileSync(`${f}.tmp`, JSON.stringify({ t: at.toISOString(), bridgeVersion: "fake", busy }));
     renameSync(`${f}.tmp`, f);
   }
 
@@ -50,12 +54,15 @@ export class FakeBridge {
         }
         if (this.hang) continue;
         const command = JSON.parse(readFileSync(working, "utf8")) as Command;
+        // Same as main.rb: "busy" beat before the tool, nothing during it, fresh beat after.
+        this.beat(new Date(), { id: command.id, since: new Date().toISOString() });
         const result = await this.sketchup.send(command);
         const out = join(this.dir, "out", f);
         if (!existsSync(out)) {
           writeFileSync(`${out}.tmp`, JSON.stringify(result));
           renameSync(`${out}.tmp`, out);
         }
+        this.beat();
         renameSync(working, join(this.dir, "done", f));
       }
     } finally {

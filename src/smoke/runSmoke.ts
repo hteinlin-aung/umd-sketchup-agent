@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import type { BridgeClient } from "../bridge/client";
+import { BridgeUnavailableError } from "../bridge/transport";
 import type { Bounds, Vec3 } from "../protocol/tools";
 
 /**
@@ -11,24 +12,40 @@ import type { Bounds, Vec3 } from "../protocol/tools";
 // A smoke test is a basic test that checks whether the major parts of a system work together.
 //The purpose is to detect major problems quickly.
 
-
 export type StepResult = { step: string; pass: boolean; detail: string };
 
 const TOLERANCE_M = 0.001; // 1 mm
 
+/**
+ * Runs every step and ALWAYS returns the steps done so far. If SketchUp stops
+ * answering half-way, that becomes one FAIL line instead of an exception that
+ * hides the earlier PASS lines (Windows test, 2026-10-29).
+ */
 export async function runSmoke(client: BridgeClient, runId = smokeRunId()): Promise<StepResult[]> {
   const steps: StepResult[] = [];
   const record = (step: string, pass: boolean, detail: string) => {
     steps.push({ step, pass, detail });
     return pass;
   };
+  try {
+    await runSteps(client, runId, record);
+  } catch (e) {
+    if (!(e instanceof BridgeUnavailableError)) throw e;
+    record("bridge", false, `stopped after ${steps.length} step(s): ${e.reason}: ${e.message}`);
+  }
+  return steps;
+}
+
+type Record = (step: string, pass: boolean, detail: string) => boolean;
+
+async function runSteps(client: BridgeClient, runId: string, record: Record): Promise<void> {
   const isMock = client.transportKind === "mock";
 
   // 1. ping
   const ping = await client.call("ping", {});
   if (!ping.ok) {
     record("1 ping", false, `${ping.error.code}: ${ping.error.message}`);
-    return steps; // nothing else can work
+    return; // nothing else can work
   }
   const expectedTools = ["ping", "getModelInfo", "createBox", "applyMaterial", "captureView", "saveCopy"];
   const missing = expectedTools.filter((t) => !ping.data.tools.includes(t));
@@ -44,7 +61,7 @@ export async function runSmoke(client: BridgeClient, runId = smokeRunId()): Prom
   const info = await client.call("getModelInfo", { maxItems: 50 });
   if (!info.ok) {
     record("2 getModelInfo", false, `${info.error.code}: ${info.error.message}`);
-    return steps;
+    return;
   }
   const names = info.data.topLevel.map((e) => `${e.name || e.definitionName} [${size(e.bounds)}]`);
   record(
@@ -53,7 +70,8 @@ export async function runSmoke(client: BridgeClient, runId = smokeRunId()): Prom
     `${info.data.topLevel.length} top-level groups: ${names.slice(0, 6).join("; ")}${names.length > 6 ? " ..." : ""}`,
   );
 
-  // 3. createBox: 4 x 3 x 3.2 m, placed 5 m past the model's +X edge so it never touches the design
+  // 3. createBox: 4 x 3 x 3.2 m, placed 5 m past the model's +X edge so it never touches the design.
+  // Its height (z) is the model's lowest point, NOT a floor level; floor levels get measured separately.
   const mb = info.data.modelBounds;
   const x0 = round((mb ? mb.max[0] : 0) + 5);
   const y0 = round(mb ? mb.min[1] : 0);
@@ -68,13 +86,14 @@ export async function runSmoke(client: BridgeClient, runId = smokeRunId()): Prom
   });
   if (!box.ok) {
     record("3 createBox", false, `${box.error.code}: ${box.error.message}`);
-    return steps;
+    return;
   }
   const err = maxDiff(box.data.worldBounds, want);
   record(
     "3 createBox",
     err <= TOLERANCE_M && box.data.faceCount === 6,
-    `measured ${size(box.data.worldBounds)}, max error ${(err * 1000).toFixed(3)} mm, ${box.data.faceCount} faces`,
+    `measured ${size(box.data.worldBounds)}, max error ${(err * 1000).toFixed(3)} mm, ${box.data.faceCount} faces, ` +
+      `at z ${z0} m (model's lowest point)`,
   );
 
   // 4. applyMaterial: creates the test material if needed, then reads every face back
@@ -120,7 +139,6 @@ export async function runSmoke(client: BridgeClient, runId = smokeRunId()): Prom
   const extra = await client.sendRaw("ping", { ruby: "Sketchup.active_model.entities.clear!" });
   record("7c unknown arg", !extra.ok && extra.error?.code === "INVALID_ARGS", extra.error?.code ?? "accepted!");
 
-  return steps;
 }
 
 export function smokeRunId(now = new Date()): string {
