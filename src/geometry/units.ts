@@ -6,27 +6,32 @@
  * Week 2's instruction reader uses these functions so a size is never misread.
  *
  * The spec is the test file: tests/unit/units.test.ts
- * 1. Remove `.skip` from the `describe.skip(...)` line in that file.
- * 2. Run `npm test` and watch them fail.
- * 3. Write the three functions below until every test passes.
  */
+
+
 
 export type LengthUnit = "mm" | "cm" | "m" | "in" | "ft";
 
-/** 3200, "mm" -> 3.2 */
+// How many metres one of each unit is.
+const METRES_PER_UNIT: Record<LengthUnit, number> = {
+  mm: 0.001,
+  cm: 0.01,
+  m: 1,
+  in: 0.0254,
+  ft: 0.3048,
+};
+
 export function toMeters(value: number, unit: LengthUnit): number {
-  throw new Error(`TODO(Htain): toMeters(${value}, ${unit})`);
+  return value * METRES_PER_UNIT[unit];
 }
 
-/**
- * Reads a written length and returns metres, or null if it cannot be read.
- * "3200 mm" -> 3.2 · "2.4m" -> 2.4 · "90 cm" -> 0.9 · "16 ft" -> 4.8768 · "abc" -> null
- */
 export function parseLength(text: string): number | null {
-  throw new Error(`TODO(Htain): parseLength(${JSON.stringify(text)})`);
+  const match = text.trim().toLowerCase().match(/^(-?\d+(?:\.\d+)?)\s*(mm|cm|m|in|ft)$/);
+  if (!match) return null;
+  return toMeters(Number(match[1]), match[2] as LengthUnit);
 }
 
-/** Compares lengths with a tolerance; never use === on measured numbers. */
 export function nearlyEqual(a: number, b: number, toleranceM = 0.001): boolean {
-  throw new Error(`TODO(Htain): nearlyEqual(${a}, ${b}, ${toleranceM})`);
+  return Math.abs(a - b) <= toleranceM;
 }
+

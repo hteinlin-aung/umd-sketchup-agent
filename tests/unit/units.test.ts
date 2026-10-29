@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nearlyEqual, parseLength, toMeters } from "../../src/geometry/units";
 
 // YOUR TASK: remove ".skip" below, then make src/geometry/units.ts pass these.
-describe.skip("units (Htain's module)", () => {
+describe("units (Htain's module)", () => {
   describe("toMeters", () => {
     it("converts every supported unit", () => {
       expect(toMeters(3200, "mm")).toBeCloseTo(3.2, 9);
