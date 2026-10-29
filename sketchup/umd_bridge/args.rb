@@ -87,6 +87,16 @@ module UMDBridge
       v
     end
 
+    def bounds(args, key, required: true)
+      b = args[key]
+      return nil if b.nil? && !required
+      raise invalid(key, 'must be { "min": [x,y,z], "max": [x,y,z] }') unless b.is_a?(Hash) && b.keys.sort == %w[max min]
+      lo = vec3(b, 'min')
+      hi = vec3(b, 'max')
+      raise invalid(key, 'min must not be greater than max') unless (0..2).all? { |i| lo[i] <= hi[i] }
+      { 'min' => lo, 'max' => hi }
+    end
+
     # Exactly one of: { "entityId": n } | { "persistentId": n } | { "path": ["name", ...] }
     def target(args, key, required: true)
       t = args[key]
@@ -161,6 +171,46 @@ module UMDBridge
         'height' => Args.int(a, 'height', 240, 4096, 900),
         'scene' => Args.name(a, 'scene', required: false),
         'zoomTo' => Args.target(a, 'zoomTo', required: false)
+      }
+    end
+
+    def findEntities(a)
+      Args.only!(a, %w[within name tag type touches maxDepth limit])
+      name = a['name']
+      unless name.nil? || (name.is_a?(String) && Args::NAME_RANGE.cover?(name.strip.length))
+        raise Args.invalid('name', 'must be 1-120 characters')
+      end
+      {
+        'within' => Args.target(a, 'within', required: false),
+        'name' => name && name.strip,
+        'tag' => Args.name(a, 'tag', required: false),
+        'type' => Args.enum(a, 'type', %w[any Group ComponentInstance], 'any'),
+        'touches' => Args.bounds(a, 'touches', required: false),
+        'maxDepth' => Args.int(a, 'maxDepth', 1, 8, 3),
+        'limit' => Args.int(a, 'limit', 1, 500, 100)
+      }
+    end
+
+    def inspectEntity(a)
+      Args.only!(a, %w[target maxChildren])
+      { 'target' => Args.target(a, 'target'), 'maxChildren' => Args.int(a, 'maxChildren', 0, 200, 50) }
+    end
+
+    DIRECTIONS = {
+      'down' => [0, 0, -1], 'up' => [0, 0, 1], 'north' => [0, 1, 0],
+      'south' => [0, -1, 0], 'east' => [1, 0, 0], 'west' => [-1, 0, 0]
+    }.freeze
+
+    def measure(a)
+      Args.only!(a, %w[from direction maxDistance allHits maxHits])
+      d = a.key?('maxDistance') ? a['maxDistance'] : 50
+      raise Args.invalid('maxDistance', 'must be a number 0.01-500 (metres)') unless Args.number?(d) && d >= 0.01 && d <= 500
+      {
+        'from' => Args.vec3(a, 'from'),
+        'direction' => Args.enum(a, 'direction', DIRECTIONS.keys, 'down'),
+        'maxDistance' => d.to_f,
+        'allHits' => Args.bool(a, 'allHits', false),
+        'maxHits' => Args.int(a, 'maxHits', 1, 50, 20)
       }
     end
 

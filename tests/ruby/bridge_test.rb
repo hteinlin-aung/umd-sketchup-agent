@@ -2,71 +2,8 @@
 # Covers: queue folders, claiming files, JSON handling, whitelist, model guard,
 # master protection, undo wrapping, duplicates, heartbeat.
 # It does NOT test real geometry - that needs SketchUp on Windows (npm run smoke).
-require 'json'
-require 'time'
-require 'tmpdir'
-require 'fileutils'
 require 'minitest/autorun'
-
-# ---------- the smallest fake SketchUp that main.rb needs ----------
-module UI
-  def self.start_timer(*_a); :timer; end
-  def self.stop_timer(*_a); nil; end
-  def self.menu(*_a); FakeMenu.new; end
-  def self.messagebox(*_a); nil; end
-  def self.openURL(*_a); nil; end
-end
-
-class FakeMenu
-  def add_submenu(*_a); self; end
-  def add_item(*_a); nil; end
-end
-
-class FakeList
-  include Enumerable
-  def initialize(items); @items = items; end
-  def each(&block); @items.each(&block); end
-  def [](name); @items.find { |i| i.name == name }; end
-end
-
-FakeNamed = Struct.new(:name) do
-  def visible?; true; end
-end
-
-class FakeBounds
-  def empty?; true; end
-end
-
-class FakeModel
-  attr_accessor :path, :ops
-  def initialize(path); @path = path; @ops = []; end
-  def title; File.basename(@path, '.skp'); end
-  def entities; []; end
-  def materials; FakeList.new([FakeNamed.new('UMD Light Oak')]); end
-  def layers; FakeList.new([FakeNamed.new('Layer0')]); end
-  def pages; FakeList.new([]); end
-  def definitions; FakeList.new([]); end
-  def bounds; FakeBounds.new; end
-  def start_operation(name, *_a); @ops << [:start, name]; end
-  def commit_operation; @ops << [:commit]; end
-  def abort_operation; @ops << [:abort]; end
-end
-
-module Sketchup
-  class Group; end
-  class ComponentInstance; end
-  class ComponentDefinition; end
-  class << self
-    attr_accessor :active_model
-  end
-  def self.version; '25.0.634'; end
-  def self.is_pro?; true; end
-end
-
-def file_loaded?(*_a); false; end
-def file_loaded(*_a); nil; end
-
-load File.join(__dir__, '..', '..', 'sketchup', 'umd_bridge', 'main.rb')
+require_relative 'fake_sketchup'
 
 # ---------- tests ----------
 class BridgeLoopTest < Minitest::Test

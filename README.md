@@ -6,8 +6,8 @@ is checked, and a **new copy** of the model is saved. The AI never writes Sketch
 
 Built for the *Urban Mind Detox* thesis model. Full plan and decisions: [`PLAN.md`](PLAN.md).
 
-**Status:** Week 1. Bridge + 6 tools (`ping`, `getModelInfo`, `createBox`, `applyMaterial`,
-`captureView`, `saveCopy`). No AI yet; that arrives in Week 2.
+**Status:** Week 1 done (2026-10-29). Week 2 in progress: read-only tools `findEntities`,
+`inspectEntity`, `measure` + `npm run levels` (bridge 0.2.0). No AI yet; it arrives later in Week 2.
 
 ---
 
@@ -88,6 +88,8 @@ git pull                 # get the latest code
 # open E:\Cowork_Field\Thesis_SketchUp\dev\UMD_DEV_1F.skp
 npm run ping             # quick: is SketchUp listening?
 npm run smoke            # Week 1 acceptance test
+npm run levels           # floor levels: every surface straight down through each UMD nF group
+npm run tool -- findEntities @find.json   # run any one tool by hand (arguments from a JSON file)
 ```
 
 `npm run smoke` adds a 4 × 3 × 3.2 m orange test box 5 m outside the model and saves
@@ -110,6 +112,26 @@ The heartbeat says `busy` while a tool runs, so the client waits instead of givi
 Every command is logged in `agent_queue/bridge_log.jsonl`. The original command files are kept in `done/`.
 
 ---
+
+## Running one tool by hand: `npm run tool`
+
+```bash
+npm run tool -- findEntities '{"name":"bench"}'        # Mac/bash: inline JSON is fine
+npm run tool -- inspectEntity --target-id 12345        # shortcut for {"target":{"entityId":12345}}
+npm run tool -- measure @probe.json                    # Windows: put the JSON in a file
+```
+
+The arguments are checked with the same Zod schemas the agent uses, so a typo is reported
+before anything reaches SketchUp. Add `--mock` to try it without SketchUp.
+
+| Tool (Week 2) | What it tells you | Typical arguments |
+|---|---|---|
+| `findEntities` | Groups/components matching a name, tag, type or area, with their full path | `{"name":"bench"}`, `{"tag":"Ceilings","maxDepth":5}`, `{"within":{"path":["UMD 1F"]}}` |
+| `inspectEntity` | Size, faces (top/sides/bottom), materials, children of one thing | `{"target":{"entityId":123}}` |
+| `measure` | Every surface a ray passes, with heights and which group each belongs to | `{"from":[12,7,30],"direction":"down","allHits":true}` |
+
+All three are **read-only**, so they also work on the MASTER. Directions follow SketchUp's axes:
+east = +X (red), north = +Y (green), up = +Z (blue). Hidden geometry is ignored, as on screen.
 
 ## Your first task (Htain): `src/geometry/units.ts`
 

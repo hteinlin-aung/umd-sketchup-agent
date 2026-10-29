@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 /**
- * Week 1 tools: what each one accepts (args) and returns (result data).
+ * Every tool: what it accepts (args) and returns (result data).
+ * Week 1: ping, getModelInfo, createBox, applyMaterial, captureView, saveCopy.
+ * Week 2: findEntities, inspectEntity, measure (read-only).
  * All lengths are in METRES, in SketchUp world coordinates (Z up).
  * The Ruby side converts to inches; nothing else in TypeScript should.
  *
@@ -150,16 +152,131 @@ export const SaveCopyArgs = z.strictObject({
 });
 export const SaveCopyData = z.object({ path: z.string(), bytes: z.number().int() });
 
+// ---------- findEntities (Week 2) ----------
+
+export const FindEntitiesArgs = z
+  .strictObject({
+    within: Target.optional(), // search inside this group/component; default: the whole model
+    name: z.string().trim().min(1).max(120).optional(), // part of the name or definition name, any case
+    tag: Name.optional(), // exact tag name, any case
+    type: z.enum(["any", "Group", "ComponentInstance"]).default("any"),
+    touches: z.strictObject({ min: Vec3, max: Vec3 }).optional(), // only things whose world box overlaps this box (metres)
+    maxDepth: z.number().int().min(1).max(8).default(3), // 1 = direct children only
+    limit: z.number().int().min(1).max(500).default(100),
+  })
+  .refine((a) => !a.touches || a.touches.min.every((v, i) => v <= a.touches!.max[i]!), {
+    message: "touches.min must not be greater than touches.max",
+    path: ["touches"],
+  });
+
+const Found = EntityRef.extend({
+  type: z.enum(["Group", "ComponentInstance"]),
+  name: z.string(),
+  definitionName: z.string(),
+  tag: z.string(),
+  hidden: z.boolean(),
+  path: z.array(z.string()), // names from the top, ending with this one
+  depth: z.number().int(),
+  bounds: Bounds, // world, metres
+  instanceCount: z.number().int(), // >1 = a component used in several places
+  childCount: z.number().int(),
+  insideSharedComponent: z.boolean(), // true = can't be changed on its own (lives inside a shared component)
+});
+export const FindEntitiesData = z.object({
+  matches: z.array(Found),
+  truncated: z.boolean(), // more matches exist than `limit`
+  scanned: z.number().int(),
+  scanLimitHit: z.boolean(), // the model was too big to search completely; narrow the search
+});
+
+// ---------- inspectEntity (Week 2) ----------
+
+export const InspectEntityArgs = z.strictObject({
+  target: Target,
+  maxChildren: z.number().int().min(0).max(200).default(50),
+});
+export const InspectEntityData = EntityRef.extend({
+  type: z.enum(["Group", "ComponentInstance"]),
+  name: z.string(),
+  definitionName: z.string(),
+  tag: z.string(),
+  hidden: z.boolean(),
+  path: z.array(z.string()).nullable(), // null when it sits inside a shared component
+  worldBounds: Bounds,
+  size: Vec3, // world box width (x), depth (y), height (z) in metres
+  scaled: z.boolean(), // the instance is stretched; face areas below are unscaled
+  instanceCount: z.number().int(),
+  instanceMaterial: z.string().nullable(), // material painted on the group/component itself
+  faces: z.object({
+    count: z.number().int(),
+    top: z.number().int(),
+    bottom: z.number().int(),
+    sides: z.number().int(),
+    other: z.number().int(),
+    areaM2: z.number(),
+  }),
+  materials: z.array(z.object({ name: z.string(), faces: z.number().int() })), // "(default)" = unpainted
+  childCount: z.number().int(),
+  children: z.array(EntityRef.extend({ type: z.enum(["Group", "ComponentInstance"]), name: z.string(), definitionName: z.string(), tag: z.string() })),
+  childrenTruncated: z.boolean(),
+});
+
+// ---------- measure (Week 2) ----------
+
+/** SketchUp convention: +X = east (red axis), +Y = north (green axis), +Z = up (blue axis). */
+export const Direction = z.enum(["down", "up", "north", "south", "east", "west"]);
+export const DIRECTION_VECTORS: Record<z.infer<typeof Direction>, Vec3> = {
+  down: [0, 0, -1],
+  up: [0, 0, 1],
+  north: [0, 1, 0],
+  south: [0, -1, 0],
+  east: [1, 0, 0],
+  west: [-1, 0, 0],
+};
+
+export const MeasureArgs = z.strictObject({
+  from: Vec3,
+  direction: Direction.default("down"),
+  maxDistance: z.number().finite().min(0.01).max(500).default(50),
+  allHits: z.boolean().default(false), // false = first surface only; true = keep going through everything
+  maxHits: z.number().int().min(1).max(50).default(20),
+});
+export const MeasureData = z.object({
+  from: Vec3,
+  direction: Direction,
+  hits: z.array(
+    z.object({
+      point: Vec3,
+      distance: z.number(), // metres from `from`
+      path: z.array(z.string()), // groups/components the hit surface sits in, from the top
+      entityIds: z.array(z.number().int()),
+      tag: z.string(), // tag of the innermost group/component (or of the face itself)
+      material: z.string().nullable(), // front material of the face that was hit
+    }),
+  ),
+  stoppedBecause: z.enum(["noMoreHits", "maxHits", "maxDistance"]),
+});
+
 // ---------- the registry ----------
 
+/**
+ * kind decides which models a tool may run on (same rules as main.rb):
+ *   always = any time · read = any open model, even the MASTER
+ *   file / view = target.txt must match · write = target.txt must match AND never the MASTER
+ */
+export type ToolKind = "always" | "read" | "file" | "view" | "write";
+
 export const TOOLS = {
-  ping: { args: PingArgs, data: PingData, changesModel: false },
-  getModelInfo: { args: GetModelInfoArgs, data: GetModelInfoData, changesModel: false },
-  createBox: { args: CreateBoxArgs, data: CreateBoxData, changesModel: true },
-  applyMaterial: { args: ApplyMaterialArgs, data: ApplyMaterialData, changesModel: true },
-  captureView: { args: CaptureViewArgs, data: CaptureViewData, changesModel: false },
-  saveCopy: { args: SaveCopyArgs, data: SaveCopyData, changesModel: false },
-} as const;
+  ping: { args: PingArgs, data: PingData, kind: "always", changesModel: false },
+  getModelInfo: { args: GetModelInfoArgs, data: GetModelInfoData, kind: "read", changesModel: false },
+  createBox: { args: CreateBoxArgs, data: CreateBoxData, kind: "write", changesModel: true },
+  applyMaterial: { args: ApplyMaterialArgs, data: ApplyMaterialData, kind: "write", changesModel: true },
+  captureView: { args: CaptureViewArgs, data: CaptureViewData, kind: "view", changesModel: false },
+  saveCopy: { args: SaveCopyArgs, data: SaveCopyData, kind: "file", changesModel: false },
+  findEntities: { args: FindEntitiesArgs, data: FindEntitiesData, kind: "read", changesModel: false },
+  inspectEntity: { args: InspectEntityArgs, data: InspectEntityData, kind: "read", changesModel: false },
+  measure: { args: MeasureArgs, data: MeasureData, kind: "read", changesModel: false },
+} as const satisfies Record<string, { args: z.ZodType; data: z.ZodType; kind: ToolKind; changesModel: boolean }>;
 
 export type ToolName = keyof typeof TOOLS;
 /** What you pass in (defaults may be left out). */

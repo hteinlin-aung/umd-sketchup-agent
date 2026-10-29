@@ -19,6 +19,7 @@ load File.join(dir, 'geo.rb')
 load File.join(dir, 'tools', 'read_tools.rb')
 load File.join(dir, 'tools', 'build_tools.rb')
 load File.join(dir, 'tools', 'output_tools.rb')
+load File.join(dir, 'tools', 'inspect_tools.rb')
 
 module UMDBridge
   FOLDERS = %w[in working out done cancelled images].freeze
@@ -36,12 +37,15 @@ module UMDBridge
       'createBox' => :write,
       'applyMaterial' => :write,
       'captureView' => :view,
-      'saveCopy' => :file
+      'saveCopy' => :file,
+      'findEntities' => :read,
+      'inspectEntity' => :read,
+      'measure' => :read
     }
   end
 
   def self.version
-    '0.1.2'
+    '0.2.0'
   end
 
   def self.protocol

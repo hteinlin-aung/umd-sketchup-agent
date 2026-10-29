@@ -1,46 +1,712 @@
 [
-  { "tool": "ping", "valid": true, "args": {} },
-  { "tool": "ping", "valid": false, "args": { "ruby": "Sketchup.active_model.entities.clear!" } },
-
-  { "tool": "getModelInfo", "valid": true, "args": {} },
-  { "tool": "getModelInfo", "valid": true, "args": { "maxItems": 1000 } },
-  { "tool": "getModelInfo", "valid": false, "args": { "maxItems": 0 } },
-  { "tool": "getModelInfo", "valid": false, "args": { "maxItems": "5" } },
-  { "tool": "getModelInfo", "valid": false, "args": { "maxItems": 2.5 } },
-
-  { "tool": "createBox", "valid": true, "args": { "jobGroup": "AGENT TEST", "name": "box", "tag": "AGENT TEST", "min": [0, 0, 0], "max": [4, 3, 3.2] } },
-  { "tool": "createBox", "valid": true, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [-10.5, -1, -1.01], "max": [-10.4, 0, 0], "material": "UMD Light Oak" } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0, 0], "max": [4, 3, 0] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0, 0], "max": [-4, 3, 3] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0, 0], "max": [4, 3, 0.0005] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0, 0], "max": [4000, 3000, 3200] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0], "max": [4, 3, 3] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0, "0"], "max": [4, 3, 3] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "   ", "tag": "t", "min": [0, 0, 0], "max": [4, 3, 3] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "min": [0, 0, 0], "max": [4, 3, 3] } },
-  { "tool": "createBox", "valid": false, "args": { "jobGroup": "j", "name": "b", "tag": "t", "min": [0, 0, 0], "max": [4, 3, 3], "eval": "x" } },
-
-  { "tool": "applyMaterial", "valid": true, "args": { "target": { "entityId": 42 }, "material": "UMD Light Oak" } },
-  { "tool": "applyMaterial", "valid": true, "args": { "target": { "path": ["UMD 1F", "1F RECEPTION (T128)"] }, "material": "New", "color": [230, 120, 40], "faces": "top", "paintBack": true } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": { "entityId": 42, "path": ["UMD 1F"] }, "material": "UMD Light Oak" } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": {}, "material": "UMD Light Oak" } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": { "entityId": -3 }, "material": "UMD Light Oak" } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": { "path": [] }, "material": "UMD Light Oak" } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": { "entityId": 42 }, "material": "x", "color": [300, 0, 0] } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": { "entityId": 42 }, "material": "x", "faces": "bottom" } },
-  { "tool": "applyMaterial", "valid": false, "args": { "target": { "entityId": 42 }, "material": "x", "paintBack": "yes" } },
-
-  { "tool": "captureView", "valid": true, "args": { "fileName": "smoke 01.png" } },
-  { "tool": "captureView", "valid": true, "args": { "fileName": "a.png", "width": 4096, "height": 240, "scene": "1F Reception", "zoomTo": { "persistentId": 9 } } },
-  { "tool": "captureView", "valid": false, "args": { "fileName": "../a.png" } },
-  { "tool": "captureView", "valid": false, "args": { "fileName": "C:/temp/a.png" } },
-  { "tool": "captureView", "valid": false, "args": { "fileName": "a.jpg" } },
-  { "tool": "captureView", "valid": false, "args": { "fileName": "a.png", "width": 100 } },
-  { "tool": "captureView", "valid": false, "args": { "fileName": "a.png", "width": 1000.5 } },
-
-  { "tool": "saveCopy", "valid": true, "args": { "fileName": "UMD_DEV_1F_v001.skp" } },
-  { "tool": "saveCopy", "valid": false, "args": { "fileName": "Urban_Mind_Detox_MASTER_v02.skp" } },
-  { "tool": "saveCopy", "valid": false, "args": { "fileName": "dev/x.skp" } },
-  { "tool": "saveCopy", "valid": false, "args": { "fileName": "x.skb" } },
-  { "tool": "saveCopy", "valid": false, "args": {} }
+ {
+  "tool": "ping",
+  "valid": true,
+  "args": {}
+ },
+ {
+  "tool": "ping",
+  "valid": false,
+  "args": {
+   "ruby": "Sketchup.active_model.entities.clear!"
+  }
+ },
+ {
+  "tool": "getModelInfo",
+  "valid": true,
+  "args": {}
+ },
+ {
+  "tool": "getModelInfo",
+  "valid": true,
+  "args": {
+   "maxItems": 1000
+  }
+ },
+ {
+  "tool": "getModelInfo",
+  "valid": false,
+  "args": {
+   "maxItems": 0
+  }
+ },
+ {
+  "tool": "getModelInfo",
+  "valid": false,
+  "args": {
+   "maxItems": "5"
+  }
+ },
+ {
+  "tool": "getModelInfo",
+  "valid": false,
+  "args": {
+   "maxItems": 2.5
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": true,
+  "args": {
+   "jobGroup": "AGENT TEST",
+   "name": "box",
+   "tag": "AGENT TEST",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    3.2
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": true,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    -10.5,
+    -1,
+    -1.01
+   ],
+   "max": [
+    -10.4,
+    0,
+    0
+   ],
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    0
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    -4,
+    3,
+    3
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    0.0005
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4000,
+    3000,
+    3200
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    3
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    "0"
+   ],
+   "max": [
+    4,
+    3,
+    3
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "   ",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    3
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    3
+   ]
+  }
+ },
+ {
+  "tool": "createBox",
+  "valid": false,
+  "args": {
+   "jobGroup": "j",
+   "name": "b",
+   "tag": "t",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    4,
+    3,
+    3
+   ],
+   "eval": "x"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": true,
+  "args": {
+   "target": {
+    "entityId": 42
+   },
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": true,
+  "args": {
+   "target": {
+    "path": [
+     "UMD 1F",
+     "1F RECEPTION (T128)"
+    ]
+   },
+   "material": "New",
+   "color": [
+    230,
+    120,
+    40
+   ],
+   "faces": "top",
+   "paintBack": true
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 42,
+    "path": [
+     "UMD 1F"
+    ]
+   },
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {},
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": -3
+   },
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {
+    "path": []
+   },
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 42
+   },
+   "material": "x",
+   "color": [
+    300,
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 42
+   },
+   "material": "x",
+   "faces": "bottom"
+  }
+ },
+ {
+  "tool": "applyMaterial",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 42
+   },
+   "material": "x",
+   "paintBack": "yes"
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": true,
+  "args": {
+   "fileName": "smoke 01.png"
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": true,
+  "args": {
+   "fileName": "a.png",
+   "width": 4096,
+   "height": 240,
+   "scene": "1F Reception",
+   "zoomTo": {
+    "persistentId": 9
+   }
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": false,
+  "args": {
+   "fileName": "../a.png"
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": false,
+  "args": {
+   "fileName": "C:/temp/a.png"
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": false,
+  "args": {
+   "fileName": "a.jpg"
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": false,
+  "args": {
+   "fileName": "a.png",
+   "width": 100
+  }
+ },
+ {
+  "tool": "captureView",
+  "valid": false,
+  "args": {
+   "fileName": "a.png",
+   "width": 1000.5
+  }
+ },
+ {
+  "tool": "saveCopy",
+  "valid": true,
+  "args": {
+   "fileName": "UMD_DEV_1F_v001.skp"
+  }
+ },
+ {
+  "tool": "saveCopy",
+  "valid": false,
+  "args": {
+   "fileName": "Urban_Mind_Detox_MASTER_v02.skp"
+  }
+ },
+ {
+  "tool": "saveCopy",
+  "valid": false,
+  "args": {
+   "fileName": "dev/x.skp"
+  }
+ },
+ {
+  "tool": "saveCopy",
+  "valid": false,
+  "args": {
+   "fileName": "x.skb"
+  }
+ },
+ {
+  "tool": "saveCopy",
+  "valid": false,
+  "args": {}
+ },
+ {
+  "tool": "findEntities",
+  "valid": true,
+  "args": {}
+ },
+ {
+  "tool": "findEntities",
+  "valid": true,
+  "args": {
+   "name": "bench",
+   "tag": "1F Reception - Furniture (T128)",
+   "type": "Group",
+   "maxDepth": 8,
+   "limit": 500
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": true,
+  "args": {
+   "within": {
+    "path": [
+     "UMD 1F",
+     "1F RECEPTION (T128)"
+    ]
+   },
+   "touches": {
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     10,
+     10,
+     3
+    ]
+   }
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "maxDepth": 0
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "maxDepth": 9
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "limit": 501
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "type": "Face"
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "name": ""
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "touches": {
+    "min": [
+     0,
+     0,
+     5
+    ],
+    "max": [
+     1,
+     1,
+     1
+    ]
+   }
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "within": {
+    "entityId": 0
+   }
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "regex": ".*"
+  }
+ },
+ {
+  "tool": "inspectEntity",
+  "valid": true,
+  "args": {
+   "target": {
+    "entityId": 42
+   }
+  }
+ },
+ {
+  "tool": "inspectEntity",
+  "valid": true,
+  "args": {
+   "target": {
+    "persistentId": 7
+   },
+   "maxChildren": 0
+  }
+ },
+ {
+  "tool": "inspectEntity",
+  "valid": false,
+  "args": {}
+ },
+ {
+  "tool": "inspectEntity",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 42
+   },
+   "maxChildren": 201
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": true,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ]
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": true,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ],
+   "direction": "west",
+   "maxDistance": 500,
+   "allHits": true,
+   "maxHits": 50
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": false,
+  "args": {
+   "from": [
+    10,
+    10
+   ]
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": false,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ],
+   "direction": "sideways"
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": false,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ],
+   "maxDistance": 0
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": false,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ],
+   "maxDistance": 501
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": false,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ],
+   "maxHits": 0
+  }
+ },
+ {
+  "tool": "measure",
+  "valid": false,
+  "args": {
+   "from": [
+    10,
+    10,
+    30
+   ],
+   "allHits": "yes"
+  }
+ },
+ {
+  "tool": "findEntities",
+  "valid": false,
+  "args": {
+   "touches": {
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     1,
+     1,
+     1
+    ],
+    "padding": 2
+   }
+  }
+ }
 ]

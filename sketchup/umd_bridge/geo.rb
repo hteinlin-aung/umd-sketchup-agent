@@ -44,6 +44,47 @@ module UMDBridge
       n.empty? ? e.definition.name : n
     end
 
+    # Names from the top of the model down to this entity, or nil if a parent
+    # is a component used more than once (then there is no single path).
+    def path_of(entity)
+      names = [label(entity)]
+      parent = entity.parent
+      while parent.is_a?(Sketchup::ComponentDefinition)
+        instances = parent.instances
+        return nil unless instances.length == 1
+        inst = instances.first
+        names.unshift(label(inst))
+        parent = inst.parent
+      end
+      names
+    end
+
+    # True if any parent is a component used more than once.
+    def inside_shared?(entity)
+      parent = entity.parent
+      while parent.is_a?(Sketchup::ComponentDefinition)
+        return true if parent.instances.length > 1
+        parent = parent.instances.first.parent
+      end
+      false
+    end
+
+    # bb: Geom::BoundingBox (inches); box: { 'min' => [m], 'max' => [m] }
+    def overlaps?(bb, box)
+      lo = [bb.min.x, bb.min.y, bb.min.z].map { |v| i2m(v) }
+      hi = [bb.max.x, bb.max.y, bb.max.z].map { |v| i2m(v) }
+      (0..2).all? { |i| lo[i] <= box['max'][i] && hi[i] >= box['min'][i] }
+    end
+
+    # Is the transformation stretched? Each axis column of an unscaled one has length 1.
+    def scaled?(tr)
+      a = tr.to_a
+      [[0, 1, 2], [4, 5, 6], [8, 9, 10]].any? do |idx|
+        len = Math.sqrt(idx.sum { |i| a[i] * a[i] })
+        (len - 1.0).abs > 1e-6
+      end
+    end
+
     # Walks up from a nested entity to the model, multiplying transformations.
     # Returns nil if a parent is a component used more than once (no single answer).
     def world_transformation(entity)

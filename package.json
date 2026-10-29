@@ -1,6 +1,6 @@
 {
   "name": "umd-sketchup-agent",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "description": "AI-assisted modelling for SketchUp 2025: written instructions -> validated operations -> fixed Ruby tools -> checked, saved copy.",
   "type": "module",
@@ -10,11 +10,13 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ruby": "ruby tests/ruby/args_test.rb && ruby tests/ruby/bridge_test.rb",
+    "test:ruby": "ruby tests/ruby/args_test.rb && ruby tests/ruby/bridge_test.rb && ruby tests/ruby/read_tools_test.rb",
     "typecheck": "tsc --noEmit",
     "ping": "tsx src/cli/ping.ts",
     "smoke": "tsx src/cli/smoke.ts",
-    "smoke:mock": "tsx src/cli/smoke.ts --mock"
+    "smoke:mock": "tsx src/cli/smoke.ts --mock",
+    "tool": "tsx src/cli/tool.ts",
+    "levels": "tsx src/cli/levels.ts"
   },
   "dependencies": {
     "zod": "4.6.7"
