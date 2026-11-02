@@ -5,6 +5,7 @@ operations, which run through a **fixed set of tested Ruby tools** inside Sketch
 is checked, and a **new copy** of the model is saved. The AI never writes SketchUp code.
 
 Built for the *Urban Mind Detox* thesis model. Full plan and decisions: [`PLAN.md`](PLAN.md).
+**New here? Read [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md) first:** folders, workflow, and how the code talks to SketchUp.
 
 **Status:** Week 1 done (2026-10-29). Week 2 in progress: read-only tools `findEntities`,
 `inspectEntity`, `measure` + `npm run levels` (bridge 0.2.0). No AI yet; it arrives later in Week 2.
