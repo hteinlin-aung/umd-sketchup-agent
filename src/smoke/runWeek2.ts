@@ -79,6 +79,14 @@ async function checks(client: BridgeClient, runId: string, record: Record): Prom
   const bad = await client.call("createPrism", { jobGroup: job, name: "bow tie", tag, points: bowTie, z0, z1: z0 + 0.45 });
   record("4 crossing edges", !bad.ok, bad.ok ? "ACCEPTED a self-crossing footprint" : `${bad.error.code} (${bad.source})`);
 
+  // Same shape sent straight to the bridge, skipping the client check: the Ruby side must refuse it too.
+  const raw = await client.sendRaw("createPrism", { jobGroup: job, name: "bow tie raw", tag, points: bowTie, z0, z1: z0 + 0.45 });
+  record(
+    "4b bridge refuses",
+    !raw.ok && raw.error?.code === "INVALID_ARGS",
+    raw.ok ? "BRIDGE ACCEPTED a self-crossing footprint" : `${raw.error?.code}: ${raw.error?.message.split("\n")[0]}`,
+  );
+
   const target = { entityId: prism.data.entityId };
   const top: [number, number, number] = [x + 0.25, y + 1, z0 + 2]; // a point above the bench's short leg
   const before = await client.call("measure", { from: top, direction: "down" });

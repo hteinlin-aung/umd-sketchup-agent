@@ -9,7 +9,8 @@ Built for the *Urban Mind Detox* thesis model. Full plan and decisions: [`PLAN.m
 
 **Status:** Week 1 done (2026-10-29). Week 2: read-only tools verified on Windows (2026-11-02,
 levels confirmed). Step 2a: changing tools `createPrism`, `setTag`, `setTagVisibility`,
-`moveToReplaced` (bridge 0.3.0), waiting for the Windows run. No AI yet; it arrives in step 2b/2c.
+`moveToReplaced` (bridge 0.3.0) verified on Windows (2026-11-11). Step 2b: `npm run summary`, a room
+description for the AI that lists what each group really contains (mock-tested). The AI itself arrives in step 2c.
 
 ---
 
@@ -55,6 +56,7 @@ npm run typecheck      # TypeScript finds type mistakes, without running anythin
 npm test               # all TypeScript tests (mock SketchUp)
 npm run test:ruby      # Ruby tests (argument checks + bridge loop with a fake SketchUp)
 npm run smoke:mock     # the Week 1 acceptance test against the mock
+npm run summary -- "1F RECEPTION" --mock   # step 2b room summary, on a fake copy of the T128 reception
 ```
 
 No `.env` is needed on the Mac: without one, everything uses the mock.
@@ -92,6 +94,7 @@ npm run ping             # quick: is SketchUp listening?
 npm run smoke            # Week 1 acceptance test
 npm run smoke:w2         # Week 2 changing tools: L-bench prism, bow-tie refused, tag hide/show, moveToReplaced
 npm run levels           # floor levels: every surface straight down through each UMD nF group
+npm run summary -- "1F RECEPTION"   # read-only room summary for the AI -> runs/summary_<time>.md + .json
 npm run tool -- findEntities @find.json   # run any one tool by hand (arguments from a JSON file)
 ```
 

@@ -24,6 +24,12 @@ async function main(): Promise<number> {
   const client = new BridgeClient(createTransport(config, process.argv.includes("--mock")));
   const results = await readLevels(client, parseProbes(process.argv.slice(2)));
 
+  if (results.length > 0 && !results.some((r) => /^UMD [1-9]F @/i.test(r.label))) {
+    console.log('\nNOTE: no "UMD 1F/2F/3F" groups in this model, so the probes went through the top-level groups instead.');
+  }
+  if (results.length > 0 && results.every((r) => r.hits.length === 0)) {
+    console.log("NOTE: no probe hit any surface. Is this the right model? (Run `npm run ping` to see which file is open.)");
+  }
   const floors = summarizeFloors(results);
   console.log(`\nFloor-like surfaces found by ${results.length} probes (highest first):`);
   console.log("      z (m)   probes   example");

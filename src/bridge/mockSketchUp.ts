@@ -2,6 +2,7 @@ import { dirname } from "node:path/posix";
 import { z } from "zod";
 import { PROTOCOL_VERSION, type Command, type ErrorCode, type Result } from "../protocol/envelope";
 import { DIRECTION_VECTORS, TOOLS, isToolName, polygonArea, replacedTagName, type ArgsOut, type Bounds, type Target, type ToolName, type Vec3 } from "../protocol/tools";
+import { seedReceptionScene } from "./mockScenes";
 import type { Transport } from "./transport";
 
 /**
@@ -15,7 +16,7 @@ import type { Transport } from "./transport";
 
 type MockFace = { normal: Vec3; material: string | null; backMaterial: string | null };
 
-type MockEntity = {
+export type MockEntity = {
   entityId: number;
   persistentId: number;
   type: "Group" | "ComponentInstance";
@@ -32,7 +33,12 @@ export type MockOptions = {
   modelPath?: string;
   targetPattern?: string | null; // regex source, like target.txt; null = no target.txt
   delayMs?: number;
+  /** "basic" = tiny UMD 1F (default); "reception" = a copy of the T128 room in UMD_DEV_1F_reception.skp */
+  scene?: "basic" | "reception";
 };
+
+export type NewMockEntity = Omit<MockEntity, "entityId" | "persistentId" | "definitionName" | "hidden" | "faces"> &
+  Partial<MockEntity>;
 
 class ToolError extends Error {
   constructor(
@@ -74,7 +80,12 @@ export class MockSketchUp implements Transport {
     this.modelPath = opts.modelPath ?? "E:/Cowork_Field/Thesis_SketchUp/dev/UMD_DEV_1F.skp";
     this.targetPattern = opts.targetPattern === undefined ? "UMD_DEV_" : opts.targetPattern;
     this.delayMs = opts.delayMs ?? 0;
-    this.seed();
+    if (opts.scene === "reception") {
+      if (opts.modelPath === undefined) this.modelPath = "E:/Cowork_Field/Thesis_SketchUp/dev/UMD_DEV_1F_reception.skp";
+      seedReceptionScene(this);
+    } else {
+      this.seed();
+    }
   }
 
   /** The next call to `tool` fails with `code` (to test error handling). */
@@ -143,7 +154,12 @@ export class MockSketchUp implements Transport {
     }
   }
 
-  private add(e: Omit<MockEntity, "entityId" | "persistentId" | "definitionName" | "hidden" | "faces"> & Partial<MockEntity>): MockEntity {
+  /** For scenes and tests: put a group/component into the fake model. */
+  addEntity(e: NewMockEntity): MockEntity {
+    return this.add(e);
+  }
+
+  private add(e: NewMockEntity): MockEntity {
     const id = this.nextId++;
     const entity: MockEntity = {
       entityId: id,

@@ -16,7 +16,7 @@ describe("Week 2 checks against the mock", () => {
   it("pass every step", async () => {
     const steps = await runWeek2(setup().client, "test");
     expect(steps.filter((s) => !s.pass)).toEqual([]);
-    expect(steps).toHaveLength(9);
+    expect(steps).toHaveLength(10);
   });
 });
 

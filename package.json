@@ -17,7 +17,8 @@
     "smoke:mock": "tsx src/cli/smoke.ts --mock",
     "smoke:w2": "tsx src/cli/smoke.ts --week2",
     "tool": "tsx src/cli/tool.ts",
-    "levels": "tsx src/cli/levels.ts"
+    "levels": "tsx src/cli/levels.ts",
+    "summary": "tsx src/cli/summary.ts"
   },
   "dependencies": {
     "zod": "4.6.7"
