@@ -34,7 +34,9 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  const started = Date.now();
   const summary = await summarizeRoom(client, { persistentId: rooms[0]!.persistentId });
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
   const text = renderSummary(summary);
   console.log(text);
 
@@ -42,7 +44,8 @@ async function main(): Promise<number> {
   const base = `runs/summary_${smokeRunId()}`;
   writeFileSync(`${base}.md`, text + "\n");
   writeFileSync(`${base}.json`, JSON.stringify(summary, null, 2));
-  console.log(`\nsaved ${base}.md and ${base}.json`);
+  console.log(`\nbuilt in ${seconds} s, ${text.length} characters (~${Math.round(text.length / 4)} tokens)`);
+  console.log(`saved ${base}.md and ${base}.json`);
   return 0;
 }
 

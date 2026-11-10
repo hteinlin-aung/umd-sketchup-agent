@@ -88,6 +88,14 @@ describe("summarizeRoom", () => {
     expect(text.length).toBeLessThan(4000); // fits easily in a small model's context
   });
 
+  it("lists only the UMD design materials and counts the rest", async () => {
+    const { sketchup, client } = setup();
+    for (const m of ["UMD Light Oak", "Material82", "BANANA_BIG_PLANT2"]) sketchup.materials.add(m);
+    const s = await summarizeRoom(client, { path: [ROOM] });
+    expect(s.materials).toEqual({ design: ["UMD Light Oak"], otherCount: 3 }); // + "Travertine" from the scene
+    expect(renderSummary(s)).toContain("DESIGN MATERIALS: UMD Light Oak   (+3 other materials");
+  });
+
   it("throws a clear error for a room that does not exist", async () => {
     const { client } = setup();
     await expect(summarizeRoom(client, { path: ["No such room"] })).rejects.toThrow(/room not found/);

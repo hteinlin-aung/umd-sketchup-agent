@@ -39,7 +39,7 @@ export type RoomSummary = {
   modelPath: string;
   items: SummaryItem[];
   tags: { name: string; visible: boolean }[];
-  materials: string[];
+  materials: { design: string[]; otherCount: number }; // design = "UMD ..." materials; the rest are mostly 3D Warehouse imports
   notes: string[];
 };
 
@@ -55,6 +55,9 @@ export function categoriesOf(text: string): string[] {
     .filter(([, re]) => re.test(text))
     .map(([c]) => c);
 }
+
+/** Materials the design uses on purpose are named "UMD ..."; everything else came in with 3D Warehouse models. */
+const DESIGN_MATERIAL = /^UMD\b/i;
 
 const GENERIC_NAME = /^(group|component)#\d+$/i;
 
@@ -100,7 +103,7 @@ function floorFor(room: { name: string; path: string[] }, roomBounds: Bounds): R
 export async function summarizeRoom(client: BridgeClient, roomTarget: Target, maxItems = 40): Promise<RoomSummary> {
   const room = await client.call("inspectEntity", { target: roomTarget, maxChildren: 0 });
   if (!room.ok) throw new Error(`room not found: ${room.error.code}: ${room.error.message}`);
-  const info = await client.call("getModelInfo", { maxItems: 200 });
+  const info = await client.call("getModelInfo", { maxItems: 1000 });
   if (!info.ok) throw new Error(`getModelInfo failed: ${info.error.code}: ${info.error.message}`);
   const tagVisible = new Map(info.data.tags.map((t) => [t.name, t.visible]));
 
@@ -113,7 +116,8 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
 
   const items: SummaryItem[] = [];
   for (const [i, e] of direct.data.matches.entries()) {
-    const inside = await client.call("findEntities", { within: { persistentId: e.persistentId }, maxDepth: 3, limit: 200 });
+    // Two levels deep is enough to see what something really is, and keeps big models fast.
+    const inside = await client.call("findEntities", { within: { persistentId: e.persistentId }, maxDepth: 2, limit: 100 });
     const all: Found[] = inside.ok ? inside.data.matches : [];
     const childLabels = all.filter((c) => c.depth === 1).map(labelOf);
     const allLabels = all.map(labelOf).filter(Boolean);
@@ -150,6 +154,8 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
   }
 
   const roomTags = new Set(items.map((it) => it.tag));
+  const design = info.data.materials.filter((m) => DESIGN_MATERIAL.test(m));
+  if (info.data.truncated) notes.push("the model has more tags/materials than getModelInfo returned; some may be missing");
   return {
     room: {
       name: roomName,
@@ -163,7 +169,7 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
     modelPath: info.data.modelPath,
     items,
     tags: info.data.tags.filter((t) => roomTags.has(t.name) || /reception|agent|replaced/i.test(t.name)),
-    materials: info.data.materials,
+    materials: { design, otherCount: info.data.counts.materials - design.length },
     notes,
   };
 }
@@ -184,11 +190,16 @@ export function renderSummary(s: RoomSummary): string {
     const flags = [it.visible ? "" : "HIDDEN", it.canChange ? "" : "LOCKED"].filter(Boolean).join(", ");
     lines.push(`${it.ref}  ${it.name}${flags ? `  [${flags}]` : ""}`);
     lines.push(`    tag: ${it.tag} | ${boxText(it.bounds)} | size ${it.size.map(fmt).join(" x ")}`);
-    if (it.contents.length) lines.push(`    contains: ${it.contents.slice(0, 12).join("; ")}${it.contents.length > 12 ? "; ..." : ""}`);
+    const more = it.contents.length - 8;
+    if (it.contents.length) lines.push(`    contains: ${it.contents.slice(0, 8).join("; ")}${more > 0 ? `; ... (+${more} more)` : ""}`);
     for (const w of it.warnings) lines.push(`    WARNING: ${w}`);
   }
   lines.push("", `TAGS: ${s.tags.map((t) => `${t.name}${t.visible ? "" : " (hidden)"}`).join(" | ")}`);
-  lines.push(`MATERIALS: ${s.materials.slice(0, 30).join(" | ") || "(none)"}`);
+  const m = s.materials;
+  lines.push(
+    `DESIGN MATERIALS: ${m.design.join(" | ") || "(none yet; new ones are created with a colour)"}` +
+      (m.otherCount > 0 ? `   (+${m.otherCount} other materials from 3D Warehouse models, not listed)` : ""),
+  );
   for (const n of s.notes) lines.push(`NOTE: ${n}`);
   return lines.join("\n");
 }
