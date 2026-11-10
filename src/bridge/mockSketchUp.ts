@@ -1,7 +1,7 @@
 import { dirname } from "node:path/posix";
 import { z } from "zod";
 import { PROTOCOL_VERSION, type Command, type ErrorCode, type Result } from "../protocol/envelope";
-import { DIRECTION_VECTORS, TOOLS, isToolName, type ArgsOut, type Bounds, type Target, type ToolName, type Vec3 } from "../protocol/tools";
+import { DIRECTION_VECTORS, TOOLS, isToolName, polygonArea, replacedTagName, type ArgsOut, type Bounds, type Target, type ToolName, type Vec3 } from "../protocol/tools";
 import type { Transport } from "./transport";
 
 /**
@@ -222,6 +222,14 @@ export class MockSketchUp implements Transport {
         return { data: this.inspectEntity(args as ArgsOut<"inspectEntity">), modified: false, warnings: [] };
       case "measure":
         return { data: this.measure(args as ArgsOut<"measure">), modified: false, warnings: [] };
+      case "createPrism":
+        return { data: this.createPrism(args as ArgsOut<"createPrism">), modified: true, warnings: [] };
+      case "setTag":
+        return { data: this.setTag(args as ArgsOut<"setTag">), modified: true, warnings: [] };
+      case "setTagVisibility":
+        return { data: this.setTagVisibility(args as ArgsOut<"setTagVisibility">), modified: true, warnings: [] };
+      case "moveToReplaced":
+        return { data: this.moveToReplaced(args as ArgsOut<"moveToReplaced">), modified: true, warnings: [] };
     }
   }
 
@@ -419,7 +427,7 @@ export class MockSketchUp implements Transport {
     const others = [0, 1, 2].filter((i) => i !== axis);
     const found: { t: number; e: MockEntity }[] = [];
     for (const e of this.allEntities()) {
-      if (e.hidden || this.children(e.entityId).length > 0) continue;
+      if (e.hidden || this.tags.get(e.tag) === false || this.children(e.entityId).length > 0) continue;
       if (!others.every((i) => a.from[i]! >= e.bounds.min[i]! && a.from[i]! <= e.bounds.max[i]!)) continue;
       const planes = new Set([e.bounds.min[axis]!, e.bounds.max[axis]!]);
       for (const plane of planes) {
@@ -447,6 +455,68 @@ export class MockSketchUp implements Transport {
       })),
       stoppedBecause,
     };
+  }
+
+  private jobGroup(name: string, seed: Bounds): MockEntity {
+    const found = [...this.entities.values()].find((e) => e.parentId === null && e.type === "Group" && e.name === name);
+    return found ?? this.add({ type: "Group", name, tag: "Layer0", parentId: null, bounds: seed });
+  }
+
+  private createPrism(a: ArgsOut<"createPrism">) {
+    if (a.material && !this.materials.has(a.material)) throw new ToolError("NOT_FOUND", `material "${a.material}" does not exist`);
+    const xs = a.points.map((p) => p[0]);
+    const ys = a.points.map((p) => p[1]);
+    const bounds: Bounds = { min: [Math.min(...xs), Math.min(...ys), a.z0], max: [Math.max(...xs), Math.max(...ys), a.z1] };
+    const job = this.jobGroup(a.jobGroup, bounds);
+    if (!this.tags.has(a.tag)) this.tags.set(a.tag, true);
+    const prism = this.add({ type: "Group", name: a.name, tag: a.tag, parentId: job.entityId, bounds });
+    prism.faces = [
+      { normal: [0, 0, 1], material: a.material ?? null, backMaterial: null },
+      { normal: [0, 0, -1], material: a.material ?? null, backMaterial: null },
+      ...a.points.map((p, i): MockFace => {
+        const q = a.points[(i + 1) % a.points.length]!;
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        return { normal: [(q[1] - p[1]) / len, -(q[0] - p[0]) / len, 0], material: a.material ?? null, backMaterial: null };
+      }),
+    ];
+    job.bounds = unionBounds(this.children(job.entityId).map((c) => c.bounds));
+    const area = polygonArea(a.points);
+    return {
+      entityId: prism.entityId,
+      persistentId: prism.persistentId,
+      jobGroupId: job.entityId,
+      worldBounds: bounds,
+      footprintAreaM2: round6(area),
+      volumeM3: round6(area * (a.z1 - a.z0)),
+      faceCount: prism.faces.length,
+    };
+  }
+
+  private setTag(a: ArgsOut<"setTag">) {
+    const e = this.resolve(a.target);
+    const previousTag = e.tag;
+    const created = !this.tags.has(a.tag);
+    if (created) this.tags.set(a.tag, true);
+    e.tag = a.tag;
+    return { entityId: e.entityId, persistentId: e.persistentId, previousTag, tag: a.tag, created };
+  }
+
+  private setTagVisibility(a: ArgsOut<"setTagVisibility">) {
+    const tag = [...this.tags.keys()].find((t) => t === a.tag);
+    if (tag === undefined) throw new ToolError("NOT_FOUND", `tag "${a.tag}" does not exist`);
+    if (tag === "Layer0" && !a.visible) throw new ToolError("INVALID_ARGS", "Untagged (Layer0) can't be hidden");
+    const previous = this.tags.get(tag)!;
+    this.tags.set(tag, a.visible);
+    return { tag, previous, visible: a.visible };
+  }
+
+  private moveToReplaced(a: ArgsOut<"moveToReplaced">) {
+    const e = this.resolve(a.target);
+    const previousTag = e.tag;
+    const tag = replacedTagName(a.replacedBy);
+    this.tags.set(tag, false);
+    e.tag = tag;
+    return { entityId: e.entityId, persistentId: e.persistentId, previousTag, tag, tagHidden: true };
   }
 
   private chainOf(e: MockEntity): MockEntity[] {

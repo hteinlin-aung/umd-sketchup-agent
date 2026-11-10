@@ -3,7 +3,8 @@ import { z } from "zod";
 /**
  * Every tool: what it accepts (args) and returns (result data).
  * Week 1: ping, getModelInfo, createBox, applyMaterial, captureView, saveCopy.
- * Week 2: findEntities, inspectEntity, measure (read-only).
+ * Week 2: findEntities, inspectEntity, measure (read-only);
+ *         createPrism, setTag, setTagVisibility, moveToReplaced (change the model).
  * All lengths are in METRES, in SketchUp world coordinates (Z up).
  * The Ruby side converts to inches; nothing else in TypeScript should.
  *
@@ -24,6 +25,55 @@ export type Vec3 = z.infer<typeof Vec3>;
 
 export const Bounds = z.object({ min: Vec3, max: Vec3 });
 export type Bounds = z.infer<typeof Bounds>;
+
+const Coord = z.number().finite().min(-MAX_COORD_M).max(MAX_COORD_M);
+export const Vec2 = z.tuple([Coord, Coord]);
+export type Vec2 = z.infer<typeof Vec2>;
+
+/** Shoelace formula: area of a polygon given its corners in order (metres -> m²). */
+export function polygonArea(points: Vec2[]): number {
+  let twice = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i]!;
+    const [x2, y2] = points[(i + 1) % points.length]!;
+    twice += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(twice) / 2;
+}
+
+/**
+ * True if any two edges of the polygon cross or touch (other than neighbours sharing a corner).
+ * A footprint like that ("bow tie") can't become a proper solid in SketchUp.
+ */
+export function edgesCross(points: Vec2[]): boolean {
+  const n = points.length;
+  const orient = (a: Vec2, b: Vec2, c: Vec2) => {
+    const v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    return Math.abs(v) < 1e-12 ? 0 : Math.sign(v);
+  };
+  const onSegment = (a: Vec2, b: Vec2, p: Vec2) =>
+    Math.min(a[0], b[0]) <= p[0] && p[0] <= Math.max(a[0], b[0]) && Math.min(a[1], b[1]) <= p[1] && p[1] <= Math.max(a[1], b[1]);
+  const intersects = (p1: Vec2, p2: Vec2, q1: Vec2, q2: Vec2) => {
+    const o1 = orient(p1, p2, q1);
+    const o2 = orient(p1, p2, q2);
+    const o3 = orient(q1, q2, p1);
+    const o4 = orient(q1, q2, p2);
+    if (o1 !== o2 && o3 !== o4) return true;
+    return (
+      (o1 === 0 && onSegment(p1, p2, q1)) ||
+      (o2 === 0 && onSegment(p1, p2, q2)) ||
+      (o3 === 0 && onSegment(q1, q2, p1)) ||
+      (o4 === 0 && onSegment(q1, q2, p2))
+    );
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // first and last edge share point 0
+      if (intersects(points[i]!, points[(i + 1) % n]!, points[j]!, points[(j + 1) % n]!)) return true;
+    }
+  }
+  return false;
+}
 
 // A short, human name: used for groups, tags and materials.
 const Name = z.string().trim().min(1).max(120);
@@ -257,6 +307,56 @@ export const MeasureData = z.object({
   stoppedBecause: z.enum(["noMoreHits", "maxHits", "maxDistance"]),
 });
 
+// ---------- createPrism (Week 2) ----------
+
+export const CreatePrismArgs = z
+  .strictObject({
+    jobGroup: Name,
+    name: Name,
+    tag: Name,
+    points: z.array(Vec2).min(3).max(200), // the footprint: world x,y corners (metres), in order around the shape
+    z0: Coord, // bottom height (e.g. the 1F finish floor, 1.489)
+    z1: Coord, // top height
+    material: Name.optional(), // must already exist
+  })
+  .refine((a) => a.z1 - a.z0 >= 0.001, { message: "z1 must be at least 1 mm above z0", path: ["z1"] })
+  .refine(
+    (a) =>
+      a.points.every((p, i) => {
+        const q = a.points[(i + 1) % a.points.length]!;
+        return Math.hypot(p[0] - q[0], p[1] - q[1]) >= 0.001;
+      }),
+    { message: "two neighbouring points are less than 1 mm apart (repeated point?)", path: ["points"] },
+  )
+  .refine((a) => polygonArea(a.points) >= 0.0001, { message: "the footprint has (almost) no area", path: ["points"] })
+  .refine((a) => !edgesCross(a.points), { message: "the footprint's edges cross each other (a 'bow tie' shape)", path: ["points"] });
+export const CreatePrismData = EntityRef.extend({
+  jobGroupId: z.number().int(),
+  worldBounds: Bounds, // measured after creation
+  footprintAreaM2: z.number(),
+  volumeM3: z.number(), // measured: SketchUp's own solid volume
+  faceCount: z.number().int(),
+});
+
+// ---------- setTag / setTagVisibility / moveToReplaced (Week 2) ----------
+
+export const SetTagArgs = z.strictObject({ target: Target, tag: Name });
+export const SetTagData = EntityRef.extend({ previousTag: z.string(), tag: z.string(), created: z.boolean() });
+
+export const SetTagVisibilityArgs = z.strictObject({ tag: Name, visible: z.boolean() });
+export const SetTagVisibilityData = z.object({ tag: z.string(), previous: z.boolean(), visible: z.boolean() });
+
+/** Your thesis habit: replaced work is HIDDEN on a "zz_REPLACED by …" tag, never deleted. */
+export const MoveToReplacedArgs = z.strictObject({
+  target: Target,
+  replacedBy: z.string().trim().min(1).max(60), // short label, e.g. "T201 oak bench"
+});
+export const MoveToReplacedData = EntityRef.extend({ previousTag: z.string(), tag: z.string(), tagHidden: z.boolean() });
+
+export function replacedTagName(replacedBy: string): string {
+  return `zz_REPLACED by ${replacedBy.trim()} (hidden)`;
+}
+
 // ---------- the registry ----------
 
 /**
@@ -276,6 +376,10 @@ export const TOOLS = {
   findEntities: { args: FindEntitiesArgs, data: FindEntitiesData, kind: "read", changesModel: false },
   inspectEntity: { args: InspectEntityArgs, data: InspectEntityData, kind: "read", changesModel: false },
   measure: { args: MeasureArgs, data: MeasureData, kind: "read", changesModel: false },
+  createPrism: { args: CreatePrismArgs, data: CreatePrismData, kind: "write", changesModel: true },
+  setTag: { args: SetTagArgs, data: SetTagData, kind: "write", changesModel: true },
+  setTagVisibility: { args: SetTagVisibilityArgs, data: SetTagVisibilityData, kind: "write", changesModel: true },
+  moveToReplaced: { args: MoveToReplacedArgs, data: MoveToReplacedData, kind: "write", changesModel: true },
 } as const satisfies Record<string, { args: z.ZodType; data: z.ZodType; kind: ToolKind; changesModel: boolean }>;
 
 export type ToolName = keyof typeof TOOLS;

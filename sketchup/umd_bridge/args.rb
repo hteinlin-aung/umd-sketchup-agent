@@ -87,6 +87,59 @@ module UMDBridge
       v
     end
 
+    # [[x, y], ...] footprint corners in metres
+    def points2d(args, key, min, max)
+      v = args[key]
+      valid = v.is_a?(Array) && v.length >= min && v.length <= max &&
+              v.all? { |p| p.is_a?(Array) && p.length == 2 && p.all? { |n| number?(n) && n.abs <= MAX_COORD_M } }
+      raise invalid(key, "must be #{min}-#{max} [x, y] points in metres") unless valid
+      v.map { |p| p.map(&:to_f) }
+    end
+
+    def coord(args, key)
+      v = args[key]
+      raise invalid(key, "must be a number within +-#{MAX_COORD_M.to_i} m") unless number?(v) && v.abs <= MAX_COORD_M
+      v.to_f
+    end
+
+    # Shoelace formula, same as polygonArea() in tools.ts
+    def polygon_area(points)
+      twice = 0.0
+      points.each_with_index do |(x1, y1), i|
+        x2, y2 = points[(i + 1) % points.length]
+        twice += x1 * y2 - x2 * y1
+      end
+      twice.abs / 2.0
+    end
+
+    # Same as edgesCross() in tools.ts: do any two non-neighbouring edges cross or touch?
+    def edges_cross?(points)
+      n = points.length
+      orient = lambda do |a, b, c|
+        v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        v.abs < 1e-12 ? 0 : (v <=> 0)
+      end
+      on_segment = lambda do |a, b, p|
+        [a[0], b[0]].min <= p[0] && p[0] <= [a[0], b[0]].max && [a[1], b[1]].min <= p[1] && p[1] <= [a[1], b[1]].max
+      end
+      intersects = lambda do |p1, p2, q1, q2|
+        o1 = orient.call(p1, p2, q1)
+        o2 = orient.call(p1, p2, q2)
+        o3 = orient.call(q1, q2, p1)
+        o4 = orient.call(q1, q2, p2)
+        return true if o1 != o2 && o3 != o4
+        (o1.zero? && on_segment.call(p1, p2, q1)) || (o2.zero? && on_segment.call(p1, p2, q2)) ||
+          (o3.zero? && on_segment.call(q1, q2, p1)) || (o4.zero? && on_segment.call(q1, q2, p2))
+      end
+      (0...n).each do |i|
+        ((i + 2)...n).each do |j|
+          next if i.zero? && j == n - 1
+          return true if intersects.call(points[i], points[(i + 1) % n], points[j], points[(j + 1) % n])
+        end
+      end
+      false
+    end
+
     def bounds(args, key, required: true)
       b = args[key]
       return nil if b.nil? && !required
@@ -212,6 +265,48 @@ module UMDBridge
         'allHits' => Args.bool(a, 'allHits', false),
         'maxHits' => Args.int(a, 'maxHits', 1, 50, 20)
       }
+    end
+
+    def createPrism(a)
+      Args.only!(a, %w[jobGroup name tag points z0 z1 material])
+      v = {
+        'jobGroup' => Args.name(a, 'jobGroup'),
+        'name' => Args.name(a, 'name'),
+        'tag' => Args.name(a, 'tag'),
+        'points' => Args.points2d(a, 'points', 3, 200),
+        'z0' => Args.coord(a, 'z0'),
+        'z1' => Args.coord(a, 'z1'),
+        'material' => Args.name(a, 'material', required: false)
+      }
+      raise Args.invalid('z1', 'z1 must be at least 1 mm above z0') unless v['z1'] - v['z0'] >= 0.001
+      pts = v['points']
+      pts.each_with_index do |p, i|
+        q = pts[(i + 1) % pts.length]
+        if Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.001
+          raise Args.invalid('points', 'two neighbouring points are less than 1 mm apart (repeated point?)')
+        end
+      end
+      raise Args.invalid('points', 'the footprint has (almost) no area') if Args.polygon_area(pts) < 0.0001
+      raise Args.invalid('points', "the footprint's edges cross each other (a 'bow tie' shape)") if Args.edges_cross?(pts)
+      v
+    end
+
+    def setTag(a)
+      Args.only!(a, %w[target tag])
+      { 'target' => Args.target(a, 'target'), 'tag' => Args.name(a, 'tag') }
+    end
+
+    def setTagVisibility(a)
+      Args.only!(a, %w[tag visible])
+      raise Args.invalid('visible', 'is required (true or false)') unless a.key?('visible')
+      { 'tag' => Args.name(a, 'tag'), 'visible' => Args.bool(a, 'visible', nil) }
+    end
+
+    def moveToReplaced(a)
+      Args.only!(a, %w[target replacedBy])
+      by = a['replacedBy']
+      raise Args.invalid('replacedBy', 'must be 1-60 characters') unless by.is_a?(String) && (1..60).cover?(by.strip.length)
+      { 'target' => Args.target(a, 'target'), 'replacedBy' => by.strip }
     end
 
     def saveCopy(a)

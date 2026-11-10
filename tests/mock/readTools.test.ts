@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
-import { defaultProbes, readLevels } from "../../src/levels/readLevels";
+import { defaultProbes, readLevels, summarizeFloors } from "../../src/levels/readLevels";
 
 // MOCK: the TypeScript side of the Week 2 read tools. The Ruby logic is covered by
 // tests/ruby/read_tools_test.rb; real geometry by running them on Windows.
@@ -96,7 +96,7 @@ describe("readLevels", () => {
     expect(floorHits).toEqual([0.289, 0.089]); // the floor plate's top and bottom
   });
 
-  it("defaults to the centre of each 'UMD nF' group", () => {
+  it("defaults to a 3 x 3 grid inside each 'UMD nF' group (the centre alone can miss the building)", () => {
     const probes = defaultProbes({
       modelPath: "",
       modelBounds: null,
@@ -110,6 +110,23 @@ describe("readLevels", () => {
         { entityId: 2, persistentId: 2, type: "Group", name: "GARDEN", definitionName: "", tag: "", hidden: false, childCount: 0, bounds: { min: [0, 0, 0], max: [1, 1, 1] } },
       ],
     });
-    expect(probes).toEqual([{ label: "UMD 1F", x: 5, y: 10 }]);
+    expect(probes).toHaveLength(9);
+    expect(probes).toContainEqual({ label: "UMD 1F @50%,50%", x: 5, y: 10 });
+    expect(probes).toContainEqual({ label: "UMD 1F @25%,25%", x: 2.5, y: 5 });
+  });
+});
+
+describe("summarizeFloors", () => {
+  it("lists each floor-like height once, with how many probes saw it", async () => {
+    const { client } = setup();
+    const results = await readLevels(client, [
+      { label: "a", x: 12, y: 6.2 },
+      { label: "b", x: 0, y: 0 },
+      { label: "lake", x: 500, y: 500 }, // misses everything, like the 1F centre on the real model
+    ]);
+    expect(summarizeFloors(results)).toEqual([
+      { z: 0.289, probes: 2, example: "UMD 1F > 1F floor plate (finish surface)" },
+      { z: 0.089, probes: 2, example: "UMD 1F > 1F floor plate (finish surface)" },
+    ]);
   });
 });

@@ -40,12 +40,16 @@ module UMDBridge
       'saveCopy' => :file,
       'findEntities' => :read,
       'inspectEntity' => :read,
-      'measure' => :read
+      'measure' => :read,
+      'createPrism' => :write,
+      'setTag' => :write,
+      'setTagVisibility' => :write,
+      'moveToReplaced' => :write
     }
   end
 
   def self.version
-    '0.2.0'
+    '0.3.0'
   end
 
   def self.protocol

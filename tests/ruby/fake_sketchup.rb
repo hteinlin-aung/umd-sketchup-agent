@@ -98,10 +98,25 @@ class Sketchup::Face
   end
 end
 
+class FakeLayer
+  attr_reader :name
+  attr_accessor :visible
+  def initialize(name, visible = true); @name = name; @visible = visible; end
+  def visible?; @visible; end
+end
+
+class FakeLayers
+  include Enumerable
+  def initialize(names); @items = names.map { |n| FakeLayer.new(n) }; end
+  def each(&block); @items.each(&block); end
+  def [](key); key.is_a?(Integer) ? @items[key] : @items.find { |l| l.name == key }; end
+  def add(name); l = FakeLayer.new(name); @items << l; l; end
+end
+
 # A group/component with a definition, a tag and a fake world box (already in metres).
 module FakeContainer
-  attr_reader :name, :definition, :layer, :entityID, :persistent_id, :fake_bounds, :material
-  attr_accessor :parent
+  attr_reader :name, :definition, :entityID, :persistent_id, :fake_bounds, :material
+  attr_accessor :parent, :layer
   def setup(name, tag, bounds, children, defname)
     @name = name
     @layer = FakeNamed.new(tag)

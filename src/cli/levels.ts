@@ -1,4 +1,4 @@
-// npm run levels                      -> probe the centre of each UMD 1F/2F/3F group
+// npm run levels                      -> probe a 3 x 3 grid inside each UMD 1F/2F/3F group
 // npm run levels -- --at 12.5,7 --at 40,10   -> probe your own x,y points (metres)
 // Read-only: works on any open model, including the MASTER.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -6,7 +6,7 @@ import { BridgeClient } from "../bridge/client";
 import { createTransport } from "../bridge/createTransport";
 import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
-import { readLevels, type Probe } from "../levels/readLevels";
+import { readLevels, summarizeFloors, type Probe } from "../levels/readLevels";
 
 function parseProbes(argv: string[]): Probe[] | undefined {
   const probes: Probe[] = [];
@@ -24,7 +24,18 @@ async function main(): Promise<number> {
   const client = new BridgeClient(createTransport(config, process.argv.includes("--mock")));
   const results = await readLevels(client, parseProbes(process.argv.slice(2)));
 
+  const floors = summarizeFloors(results);
+  console.log(`\nFloor-like surfaces found by ${results.length} probes (highest first):`);
+  console.log("      z (m)   probes   example");
+  for (const f of floors) console.log(`  ${f.z.toFixed(3).padStart(9)}   ${String(f.probes).padStart(6)}   ${f.example}`);
+
+  // Full detail for the most informative probe of each group (the one that hit the most surfaces).
+  const best = new Map<string, (typeof results)[number]>();
   for (const r of results) {
+    const group = r.label.split(" @")[0]!;
+    if (!best.has(group) || r.hits.length > best.get(group)!.hits.length) best.set(group, r);
+  }
+  for (const r of best.values()) {
     console.log(`\n${r.label}  (x ${r.x}, y ${r.y})  - ${r.hits.length} surfaces, stopped: ${r.stoppedBecause}`);
     console.log("      z (m)   tag                              path");
     for (const h of r.hits) {

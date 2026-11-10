@@ -1,6 +1,6 @@
 {
   "name": "umd-sketchup-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "AI-assisted modelling for SketchUp 2025: written instructions -> validated operations -> fixed Ruby tools -> checked, saved copy.",
   "type": "module",
@@ -15,6 +15,7 @@
     "ping": "tsx src/cli/ping.ts",
     "smoke": "tsx src/cli/smoke.ts",
     "smoke:mock": "tsx src/cli/smoke.ts --mock",
+    "smoke:w2": "tsx src/cli/smoke.ts --week2",
     "tool": "tsx src/cli/tool.ts",
     "levels": "tsx src/cli/levels.ts"
   },

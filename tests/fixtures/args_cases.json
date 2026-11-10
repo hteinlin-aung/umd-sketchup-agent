@@ -708,5 +708,576 @@
     "padding": 2
    }
   }
+ },
+ {
+  "tool": "createPrism",
+  "valid": true,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     2,
+     0.5
+    ],
+    [
+     0,
+     0.5
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": true,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     3,
+     0
+    ],
+    [
+     3,
+     2
+    ],
+    [
+     1.5,
+     3
+    ],
+    [
+     0,
+     2
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939,
+   "material": "UMD Light Oak"
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     2,
+     0
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     0,
+     1
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     1,
+     1
+    ],
+    [
+     0,
+     0.0005
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     2,
+     0.5
+    ],
+    [
+     0,
+     0.5
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.489
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     2,
+     0.5
+    ],
+    [
+     0,
+     0.5
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.0
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     1,
+     0,
+     0
+    ],
+    [
+     1,
+     1,
+     0
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     2,
+     0.5
+    ],
+    [
+     0,
+     0.5
+    ]
+   ],
+   "z0": 3000,
+   "z1": 1.939
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "AGENT T201",
+   "name": "oak bench",
+   "tag": "1F Reception - Furniture (AGENT)",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     2,
+     0.5
+    ],
+    [
+     0,
+     0.5
+    ]
+   ],
+   "z0": 1.489,
+   "z1": 1.939,
+   "holes": []
+  }
+ },
+ {
+  "tool": "setTag",
+  "valid": true,
+  "args": {
+   "target": {
+    "entityId": 5
+   },
+   "tag": "1F Reception - Furniture (AGENT)"
+  }
+ },
+ {
+  "tool": "setTag",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 5
+   }
+  }
+ },
+ {
+  "tool": "setTag",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 5
+   },
+   "tag": ""
+  }
+ },
+ {
+  "tool": "setTagVisibility",
+  "valid": true,
+  "args": {
+   "tag": "PROPOSED - TBC (Phase 2)",
+   "visible": false
+  }
+ },
+ {
+  "tool": "setTagVisibility",
+  "valid": false,
+  "args": {
+   "tag": "Plants"
+  }
+ },
+ {
+  "tool": "setTagVisibility",
+  "valid": false,
+  "args": {
+   "tag": "Plants",
+   "visible": "no"
+  }
+ },
+ {
+  "tool": "moveToReplaced",
+  "valid": true,
+  "args": {
+   "target": {
+    "path": [
+     "UMD 1F",
+     "Sofa set 4"
+    ]
+   },
+   "replacedBy": "T201 oak bench"
+  }
+ },
+ {
+  "tool": "moveToReplaced",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 5
+   },
+   "replacedBy": ""
+  }
+ },
+ {
+  "tool": "moveToReplaced",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 5
+   },
+   "replacedBy": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+ },
+ {
+  "tool": "moveToReplaced",
+  "valid": false,
+  "args": {
+   "target": {
+    "entityId": 5
+   }
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "J",
+   "name": "n",
+   "tag": "t",
+   "z0": 1.489,
+   "z1": 1.939,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     2,
+     1.5
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     0,
+     2
+    ]
+   ]
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "J",
+   "name": "n",
+   "tag": "t",
+   "z0": 1.489,
+   "z1": 1.939,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     4,
+     0
+    ],
+    [
+     4,
+     4
+    ],
+    [
+     2,
+     -1
+    ],
+    [
+     0,
+     4
+    ]
+   ]
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": false,
+  "args": {
+   "jobGroup": "J",
+   "name": "n",
+   "tag": "t",
+   "z0": 1.489,
+   "z1": 1.939,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     4,
+     0
+    ],
+    [
+     4,
+     4
+    ],
+    [
+     2,
+     0
+    ],
+    [
+     0,
+     4
+    ]
+   ]
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": true,
+  "args": {
+   "jobGroup": "J",
+   "name": "n",
+   "tag": "t",
+   "z0": 1.489,
+   "z1": 1.939,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     4,
+     0
+    ],
+    [
+     4,
+     4
+    ],
+    [
+     2,
+     1
+    ],
+    [
+     0,
+     4
+    ]
+   ]
+  }
+ },
+ {
+  "tool": "createPrism",
+  "valid": true,
+  "args": {
+   "jobGroup": "J",
+   "name": "n",
+   "tag": "t",
+   "z0": 1.489,
+   "z1": 1.939,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     3,
+     0
+    ],
+    [
+     3,
+     0.5
+    ],
+    [
+     0.5,
+     0.5
+    ],
+    [
+     0.5,
+     2
+    ],
+    [
+     0,
+     2
+    ]
+   ]
+  }
  }
 ]

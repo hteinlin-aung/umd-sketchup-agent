@@ -145,3 +145,48 @@ class ReadToolsTest < Minitest::Test
     assert_equal 'maxHits', few['stoppedBecause']
   end
 end
+
+class TagToolsTest < Minitest::Test
+  class TagModel < TreeModel
+    def layers; @layers ||= FakeLayers.new(['Layer0', 'Plants', 'PROPOSED - TBC (Phase 2)']); end
+  end
+
+  def setup
+    @sofa = FakeGroup.new('Sofa set 4', tag: 'Plants')
+    @model = TagModel.new('E:/x/dev/UMD_DEV_1F_reception.skp', [@sofa])
+    @sofa.layer = @model.layers['Plants']
+    Sketchup.active_model = @model
+  end
+
+  def run_tool(tool, args)
+    UMDBridge::Tools.public_send(tool, UMDBridge::Validate.public_send(tool, args), { warnings: [] })
+  end
+
+  def test_set_tag_creates_the_tag_when_needed_and_reports_the_old_one
+    r = run_tool('setTag', 'target' => { 'entityId' => @sofa.entityID }, 'tag' => '1F Reception - Furniture (AGENT)')
+    assert_equal 'Plants', r['previousTag']
+    assert r['created']
+    assert_equal '1F Reception - Furniture (AGENT)', @sofa.layer.name
+  end
+
+  def test_set_tag_visibility_reports_before_and_after
+    r = run_tool('setTagVisibility', 'tag' => 'PROPOSED - TBC (Phase 2)', 'visible' => false)
+    assert_equal({ 'tag' => 'PROPOSED - TBC (Phase 2)', 'previous' => true, 'visible' => false }, r)
+    refute @model.layers['PROPOSED - TBC (Phase 2)'].visible?
+  end
+
+  def test_unknown_tag_and_untagged_are_refused
+    e = assert_raises(UMDBridge::ToolError) { run_tool('setTagVisibility', 'tag' => 'Nope', 'visible' => false) }
+    assert_equal 'NOT_FOUND', e.code
+    e = assert_raises(UMDBridge::ToolError) { run_tool('setTagVisibility', 'tag' => 'Layer0', 'visible' => false) }
+    assert_equal 'INVALID_ARGS', e.code
+  end
+
+  def test_move_to_replaced_hides_instead_of_deleting
+    r = run_tool('moveToReplaced', 'target' => { 'entityId' => @sofa.entityID }, 'replacedBy' => 'T201 oak bench')
+    assert_equal 'zz_REPLACED by T201 oak bench (hidden)', @sofa.layer.name
+    refute @sofa.layer.visible?
+    assert_equal 'Plants', r['previousTag']
+    assert_includes @model.entities, @sofa, 'the object must still exist'
+  end
+end

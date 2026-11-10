@@ -7,8 +7,9 @@ is checked, and a **new copy** of the model is saved. The AI never writes Sketch
 Built for the *Urban Mind Detox* thesis model. Full plan and decisions: [`PLAN.md`](PLAN.md).
 **New here? Read [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md) first:** folders, workflow, and how the code talks to SketchUp.
 
-**Status:** Week 1 done (2026-10-29). Week 2 in progress: read-only tools `findEntities`,
-`inspectEntity`, `measure` + `npm run levels` (bridge 0.2.0). No AI yet; it arrives later in Week 2.
+**Status:** Week 1 done (2026-10-29). Week 2: read-only tools verified on Windows (2026-11-02,
+levels confirmed). Step 2a: changing tools `createPrism`, `setTag`, `setTagVisibility`,
+`moveToReplaced` (bridge 0.3.0), waiting for the Windows run. No AI yet; it arrives in step 2b/2c.
 
 ---
 
@@ -89,6 +90,7 @@ git pull                 # get the latest code
 # open E:\Cowork_Field\Thesis_SketchUp\dev\UMD_DEV_1F.skp
 npm run ping             # quick: is SketchUp listening?
 npm run smoke            # Week 1 acceptance test
+npm run smoke:w2         # Week 2 changing tools: L-bench prism, bow-tie refused, tag hide/show, moveToReplaced
 npm run levels           # floor levels: every surface straight down through each UMD nF group
 npm run tool -- findEntities @find.json   # run any one tool by hand (arguments from a JSON file)
 ```
@@ -125,13 +127,22 @@ npm run tool -- measure @probe.json                    # Windows: put the JSON i
 The arguments are checked with the same Zod schemas the agent uses, so a typo is reported
 before anything reaches SketchUp. Add `--mock` to try it without SketchUp.
 
-| Tool (Week 2) | What it tells you | Typical arguments |
+| Tool (Week 2) | What it does | Typical arguments |
 |---|---|---|
 | `findEntities` | Groups/components matching a name, tag, type or area, with their full path | `{"name":"bench"}`, `{"tag":"Ceilings","maxDepth":5}`, `{"within":{"path":["UMD 1F"]}}` |
 | `inspectEntity` | Size, faces (top/sides/bottom), materials, children of one thing | `{"target":{"entityId":123}}` |
 | `measure` | Every surface a ray passes, with heights and which group each belongs to | `{"from":[12,7,30],"direction":"down","allHits":true}` |
 
-All three are **read-only**, so they also work on the MASTER. Directions follow SketchUp's axes:
+| `createPrism` | **Changes the model.** A footprint polygon (x,y in metres) extruded from `z0` to `z1`: benches, partitions, panels, platforms. Checks the edges don't cross; verifies volume | `{"jobGroup":"T201","name":"oak bench","tag":"…","points":[[0,0],[2,0],[2,0.5],[0,0.5]],"z0":1.489,"z1":1.939}` |
+| `setTag` | **Changes the model.** Puts an object on a tag (creates the tag if needed) | `{"target":{"entityId":123},"tag":"1F Reception - Furniture (AGENT)"}` |
+| `setTagVisibility` | **Changes the model.** Shows or hides a tag (never Untagged) | `{"tag":"PROPOSED - TBC (Phase 2)","visible":false}` |
+| `moveToReplaced` | **Changes the model.** Hides an object on `zz_REPLACED by … (hidden)` instead of deleting it | `{"target":{"entityId":123},"replacedBy":"T201 oak bench"}` |
+
+The first three are **read-only**, so they also work on the MASTER. The last four change the model, so
+they need `target.txt` to match and are always refused on the MASTER.
+
+**Confirmed levels** (measured 2026-11-02, in `src/project/umdLevels.ts`): finish floor 1F **1.489 m**,
+2F **5.479 m**, 3F **10.979 m**, roof 15.979 m. Build on these, not on bounding boxes. Directions follow SketchUp's axes:
 east = +X (red), north = +Y (green), up = +Z (blue). Hidden geometry is ignored, as on screen.
 
 ## Your first task (Htain): `src/geometry/units.ts`

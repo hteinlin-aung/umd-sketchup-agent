@@ -23,15 +23,48 @@ export type ProbeResult = Probe & { hits: LevelHit[]; stoppedBecause: string };
 const FLOOR_WORDS = /floor plate|finish surface|floor finish|slab/i;
 const FLOOR_GROUP = /^UMD [1-9]F$/i;
 
-/** Default probes: the centre of each "UMD 1F/2F/3F" group, or of every top-level group. */
+/**
+ * Default probes: a 3 x 3 grid inside each "UMD 1F/2F/3F" group (or each top-level group).
+ * One centre point is not enough: on 2026-11-02 the centre of UMD 1F landed on the lake,
+ * because that group also contains the site.
+ */
 export function defaultProbes(info: DataOf<"getModelInfo">): Probe[] {
   const floors = info.topLevel.filter((e) => FLOOR_GROUP.test(e.name));
   const pick = floors.length > 0 ? floors : info.topLevel;
-  return pick.map((e) => ({
-    label: e.name || e.definitionName,
-    x: round((e.bounds.min[0] + e.bounds.max[0]) / 2),
-    y: round((e.bounds.min[1] + e.bounds.max[1]) / 2),
-  }));
+  const probes: Probe[] = [];
+  for (const e of pick) {
+    const name = e.name || e.definitionName;
+    for (const fy of [0.25, 0.5, 0.75]) {
+      for (const fx of [0.25, 0.5, 0.75]) {
+        probes.push({
+          label: `${name} @${fx * 100}%,${fy * 100}%`,
+          x: round(e.bounds.min[0] + (e.bounds.max[0] - e.bounds.min[0]) * fx),
+          y: round(e.bounds.min[1] + (e.bounds.max[1] - e.bounds.min[1]) * fy),
+        });
+      }
+    }
+  }
+  return probes;
+}
+
+export type FloorCandidate = { z: number; probes: number; example: string };
+
+/** Every floor-like height found by ANY probe, highest first, with how many probes saw it. */
+export function summarizeFloors(results: ProbeResult[]): FloorCandidate[] {
+  const byZ = new Map<number, FloorCandidate>();
+  for (const r of results) {
+    const seen = new Set<number>();
+    for (const h of r.hits) {
+      if (!h.looksLikeFloor) continue;
+      const z = round(h.z);
+      if (seen.has(z)) continue;
+      seen.add(z);
+      const c = byZ.get(z) ?? { z, probes: 0, example: h.path.join(" > ") };
+      c.probes++;
+      byZ.set(z, c);
+    }
+  }
+  return [...byZ.values()].sort((a, b) => b.z - a.z);
 }
 
 export async function readLevels(client: BridgeClient, probes?: Probe[]): Promise<ProbeResult[]> {
