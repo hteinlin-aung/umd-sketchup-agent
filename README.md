@@ -10,7 +10,9 @@ Built for the *Urban Mind Detox* thesis model. Full plan and decisions: [`PLAN.m
 **Status:** Week 1 done (2026-10-29). Week 2: read-only tools verified on Windows (2026-11-02,
 levels confirmed). Step 2a: changing tools `createPrism`, `setTag`, `setTagVisibility`,
 `moveToReplaced` (bridge 0.3.0) verified on Windows (2026-11-11). Step 2b: `npm run summary`, a room
-description for the AI that lists what each group really contains (mock-tested). The AI itself arrives in step 2c.
+description for the AI that lists what each group really contains (verified on Windows, dev model and MASTER).
+Step 2c: `npm run agent`: your brief → local AI draft → checked plan → **you type y** → SketchUp → saved copy +
+report (mock-tested, waiting for Windows).
 
 ---
 
@@ -57,6 +59,8 @@ npm test               # all TypeScript tests (mock SketchUp)
 npm run test:ruby      # Ruby tests (argument checks + bridge loop with a fake SketchUp)
 npm run smoke:mock     # the Week 1 acceptance test against the mock
 npm run summary -- "1F RECEPTION" --mock   # step 2b room summary, on a fake copy of the T128 reception
+npm run agent -- instructions/1F_reception.md "1F RECEPTION" --mock --draft instructions/1F_reception.draft.json
+                       # step 2c end to end on the fake room, with the hand-written reference draft (no AI)
 ```
 
 No `.env` is needed on the Mac: without one, everything uses the mock.
@@ -95,6 +99,9 @@ npm run smoke            # Week 1 acceptance test
 npm run smoke:w2         # Week 2 changing tools: L-bench prism, bow-tie refused, tag hide/show, moveToReplaced
 npm run levels           # floor levels: every surface straight down through each UMD nF group
 npm run summary -- "1F RECEPTION"   # read-only room summary for the AI -> runs/summary_<time>.md + .json
+npm run agent -- instructions/1F_reception.md "1F RECEPTION" --dry   # ask Ollama for a plan, show it, run nothing
+npm run agent -- instructions/1F_reception.md "1F RECEPTION"         # plan, then ask y/n, run, save a copy
+npm run agent -- <brief> "<room>" --draft runs/agent_<time>/draft.json  # run a draft you already reviewed
 npm run tool -- findEntities @find.json   # run any one tool by hand (arguments from a JSON file)
 ```
 

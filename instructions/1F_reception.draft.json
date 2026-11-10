@@ -1,0 +1,45 @@
+{
+  "steps": [
+    { "op": "replace", "line": 1, "target": "R5" },
+    {
+      "op": "build", "line": 2, "id": "S1", "name": "Reception counter - light oak",
+      "placement": { "kind": "beside", "anchor": "R1", "side": "east", "gap": 1.2, "along": 3.0, "across": 0.7, "shift": 0 },
+      "height": 1.05, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] }
+    },
+    {
+      "op": "build", "line": 3, "id": "S2", "name": "Reception counter top - travertine",
+      "placement": { "kind": "onTop", "of": "S1", "overhang": 0.05 },
+      "height": 0.04, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Travertine", "rgb": [222, 211, 190] }
+    },
+    {
+      "op": "build", "line": 4, "id": "S3", "name": "Forest bench - light oak",
+      "placement": { "kind": "beside", "anchor": "R8", "side": "east", "gap": 0, "along": 6.0, "across": 0.5, "shift": 0 },
+      "height": 0.45, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] }
+    },
+    {
+      "op": "build", "line": 5, "id": "S4", "name": "Entrance planter kerb north - travertine",
+      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "along": 0.6, "across": 4.0, "shift": 1.2 },
+      "height": 0.35, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Travertine", "rgb": [222, 211, 190] }
+    },
+    {
+      "op": "build", "line": 5, "id": "S5", "name": "Entrance planter kerb south - travertine",
+      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "along": 0.6, "across": 4.0, "shift": -1.2 },
+      "height": 0.35, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Travertine", "rgb": [222, 211, 190] }
+    },
+    { "op": "hideTag", "line": 8, "tag": "1F Reception - Lighting (T128)" },
+    { "op": "screenshot", "line": 8 },
+    { "op": "showTag", "line": 8, "tag": "1F Reception - Lighting (T128)" },
+    { "op": "save", "line": 8, "fileName": "UMD_DEV_1F_reception_brief1.skp" }
+  ],
+  "notDone": [
+    { "what": "Lowered waiting area", "reason": "marked (later): needs a floor edit tool" },
+    { "what": "Nature chandelier", "reason": "marked (later): needs placeComponent" },
+    { "what": "Jungle seating with 3D Warehouse furniture", "reason": "marked (later): needs placeComponent" },
+    { "what": "Camera scene from the entrance", "reason": "marked (later): needs addScene" }
+  ]
+}

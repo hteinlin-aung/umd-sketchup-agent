@@ -8,7 +8,7 @@ import { createTransport } from "../bridge/createTransport";
 import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
 import { smokeRunId } from "../smoke/runSmoke";
-import { renderSummary, summarizeRoom } from "../summary/roomSummary";
+import { findRoom, renderSummary, summarizeRoom } from "../summary/roomSummary";
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
@@ -24,18 +24,10 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const found = await client.call("findEntities", { name: query, maxDepth: 3, limit: 20 });
-  if (!found.ok) throw new Error(`${found.error.code}: ${found.error.message}`);
-  const best = Math.min(...found.data.matches.map((m) => m.depth));
-  const rooms = found.data.matches.filter((m) => m.depth === best);
-  if (rooms.length !== 1) {
-    console.error(rooms.length === 0 ? `nothing called "${query}"` : `"${query}" matches ${rooms.length} things, be more specific:`);
-    for (const r of rooms) console.error(`  ${r.path.join(" > ")}`);
-    return 1;
-  }
+  const room = await findRoom(client, query);
 
   const started = Date.now();
-  const summary = await summarizeRoom(client, { persistentId: rooms[0]!.persistentId });
+  const summary = await summarizeRoom(client, { persistentId: room.persistentId });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   const text = renderSummary(summary);
   console.log(text);

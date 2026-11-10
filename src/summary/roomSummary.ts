@@ -100,6 +100,19 @@ function floorFor(room: { name: string; path: string[] }, roomBounds: Bounds): R
   return { z: round(roomBounds.min[2]), source: "lowest point of the room (no floor level known for this name)" };
 }
 
+/** Finds the one room whose name contains `query` (the shallowest match). Throws a readable error otherwise. */
+export async function findRoom(client: BridgeClient, query: string): Promise<{ persistentId: number; path: string[] }> {
+  const found = await client.call("findEntities", { name: query, maxDepth: 3, limit: 20 });
+  if (!found.ok) throw new Error(`${found.error.code}: ${found.error.message}`);
+  if (found.data.matches.length === 0) throw new Error(`nothing in this model is called "${query}"`);
+  const best = Math.min(...found.data.matches.map((m) => m.depth));
+  const rooms = found.data.matches.filter((m) => m.depth === best);
+  if (rooms.length > 1) {
+    throw new Error(`"${query}" matches ${rooms.length} things, be more specific:\n${rooms.map((r) => `  ${r.path.join(" > ")}`).join("\n")}`);
+  }
+  return { persistentId: rooms[0]!.persistentId, path: rooms[0]!.path };
+}
+
 export async function summarizeRoom(client: BridgeClient, roomTarget: Target, maxItems = 40): Promise<RoomSummary> {
   const room = await client.call("inspectEntity", { target: roomTarget, maxChildren: 0 });
   if (!room.ok) throw new Error(`room not found: ${room.error.code}: ${room.error.message}`);
@@ -117,7 +130,8 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
   const items: SummaryItem[] = [];
   for (const [i, e] of direct.data.matches.entries()) {
     // Two levels deep is enough to see what something really is, and keeps big models fast.
-    const inside = await client.call("findEntities", { within: { persistentId: e.persistentId }, maxDepth: 2, limit: 100 });
+    // The limit is on everything found (both levels), so it must be high or repeated parts get under-counted.
+    const inside = await client.call("findEntities", { within: { persistentId: e.persistentId }, maxDepth: 2, limit: 500 });
     const all: Found[] = inside.ok ? inside.data.matches : [];
     const childLabels = all.filter((c) => c.depth === 1).map(labelOf);
     const allLabels = all.map(labelOf).filter(Boolean);
@@ -127,6 +141,9 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
     if (mismatch) warnings.push(mismatch);
     if (e.insideSharedComponent) warnings.push("inside a shared component: cannot be changed on its own");
     if (!inside.ok) warnings.push(`contents unknown (${inside.error.code})`);
+    if (inside.ok && childLabels.length < e.childCount) {
+      warnings.push(`contents list incomplete: read ${childLabels.length} of ${e.childCount} parts`);
+    }
     items.push({
       ref: `R${i + 1}`,
       name,
@@ -194,7 +211,8 @@ export function renderSummary(s: RoomSummary): string {
     if (it.contents.length) lines.push(`    contains: ${it.contents.slice(0, 8).join("; ")}${more > 0 ? `; ... (+${more} more)` : ""}`);
     for (const w of it.warnings) lines.push(`    WARNING: ${w}`);
   }
-  lines.push("", `TAGS: ${s.tags.map((t) => `${t.name}${t.visible ? "" : " (hidden)"}`).join(" | ")}`);
+  const tagText = (t: { name: string; visible: boolean }) => (t.visible || /\(hidden\)\s*$/i.test(t.name) ? t.name : `${t.name} (hidden)`);
+  lines.push("", `TAGS: ${s.tags.map(tagText).join(" | ")}`);
   const m = s.materials;
   lines.push(
     `DESIGN MATERIALS: ${m.design.join(" | ") || "(none yet; new ones are created with a colour)"}` +
