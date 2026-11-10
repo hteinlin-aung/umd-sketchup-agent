@@ -72,5 +72,30 @@ export type Draft = z.infer<typeof Draft>;
 
 /** JSON Schema handed to Ollama, so the model can only produce this shape. */
 export function draftJsonSchema(): Record<string, unknown> {
-  return z.toJSONSchema(Draft, { io: "input" }) as Record<string, unknown>;
+  return ollamaSafe(z.toJSONSchema(Draft, { io: "input" })) as Record<string, unknown>;
+}
+
+/**
+ * Ollama builds a parser from the schema and only understands the older array form:
+ * a single `items` object. zod 4 writes a tuple the JSON Schema 2020-12 way
+ * (`prefixItems: [...]` plus `items: false`), and Ollama rejects that with
+ * "schema must be an object". This rewrites every tuple into the form it accepts.
+ * Note: the tuples here (rgb) repeat one kind of value, so the first entry describes
+ * them all. A tuple of MIXED types would lose that detail; zod still checks the answer.
+ */
+function ollamaSafe(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(ollamaSafe);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) out[key] = ollamaSafe(value);
+  const prefix = out.prefixItems;
+  if (Array.isArray(prefix) && prefix.length > 0) {
+    delete out.prefixItems;
+    out.items = prefix[0];
+    out.minItems ??= prefix.length;
+    out.maxItems ??= prefix.length;
+  } else if (out.items === false) {
+    delete out.items;
+  }
+  return out;
 }
