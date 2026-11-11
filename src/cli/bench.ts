@@ -4,13 +4,15 @@
 //   npm run bench -- instructions/1F_reception.md "1F RECEPTION" --runs 5 --models qwen3:8b,gpt-oss:20b
 //   --reference <draft.json>   default: the brief's name with .draft.json (instructions/1F_reception.draft.json)
 //   --mock                     fake room (only useful with a real Ollama, to test the command itself)
+//   --warm                     DON'T unload the model between runs (by default every run starts cold:
+//                              Ollama's prompt cache made warm runs score differently, 2026-11-12)
 // Plans only: nothing is ever sent to SketchUp except read-only tools. Results: runs/bench_<time>/results.md
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { renderBench, benchOnce, type BenchRun } from "../agent/bench";
 import { parseBrief } from "../agent/brief";
 import { Draft } from "../agent/draft";
-import { LlmError, ollamaLlm } from "../agent/llm";
+import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
 import { BridgeClient } from "../bridge/client";
 import { createTransport } from "../bridge/createTransport";
 import { BridgeUnavailableError } from "../bridge/transport";
@@ -49,12 +51,16 @@ async function main(): Promise<number> {
   const summary = await summarizeRoom(client, { persistentId: room.persistentId });
   const summaryText = renderSummary(summary);
   writeFileSync(`${dir}/summary.md`, summaryText + "\n");
-  console.log(`room read: ${summary.items.length} items. ${models.length} model(s) x ${runs} runs, ${brief.changes.length} changes each.\n`);
+  console.log(
+    `room read: ${summary.items.length} items. ${models.length} model(s) x ${runs} runs, ${brief.changes.length} changes each, ` +
+      `${args.includes("--warm") ? "WARM (model kept loaded)" : "each run cold (model unloaded first)"}.\n`,
+  );
 
   const results: BenchRun[] = [];
   for (const model of models) {
     const llm = ollamaLlm(config.ollamaUrl, model);
     for (let run = 1; run <= runs; run++) {
+      if (!args.includes("--warm")) await ollamaUnload(config.ollamaUrl, model);
       const r = await benchOnce(llm, model, run, brief, summary, summaryText, reference, opts);
       results.push(r);
       if (r.draft) writeFileSync(`${dir}/${model.replace(/[^\w.-]+/g, "_")}_run${run}.draft.json`, JSON.stringify(r.draft, null, 2));

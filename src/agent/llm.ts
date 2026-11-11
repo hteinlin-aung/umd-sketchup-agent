@@ -70,3 +70,25 @@ export function ollamaLlm(url: string, model: string, timeoutMs = 300_000): Llm 
     return text;
   };
 }
+
+/**
+ * Unloads the model from Ollama, so the next request starts cold (no cached prompt).
+ *
+ * Windows, 2026-11-12: in three separate benchmarks, run 1 (cold, slowest) always scored 8/8 and runs 2-3
+ * (warm, faster, identical to each other) scored 5-6/8. Ollama reuses the cached start of a prompt that
+ * repeats, which changes the order of the floating-point maths enough to flip a word, even at
+ * temperature 0. Starting every plan cold makes runs comparable, and makes the agent plan under the
+ * same conditions the benchmark measured. Costs a few seconds to load the model again.
+ */
+export async function ollamaUnload(url: string, model: string): Promise<void> {
+  try {
+    await fetch(`${url.replace(/\/$/, "")}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model, keep_alive: 0 }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    // Not fatal: the plan still works, it just starts warm.
+  }
+}

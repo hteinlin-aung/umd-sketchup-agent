@@ -3,6 +3,7 @@
 //   npm run agent -- instructions/1F_reception.md "1F RECEPTION" --dry     plan only, nothing runs
 //   npm run agent -- <brief> "<room>" --draft instructions/1F_reception.draft.json   skip the model, use a hand-written draft
 //   add --mock to use the fake reception room instead of SketchUp
+//   add --warm to keep the model loaded (by default it starts cold, like the benchmark)
 // The model is asked about ONE numbered change at a time (see src/agent/planner.ts).
 // Everything is saved in runs/agent_<time>/ (summary, the model's answers, draft, plan, report).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { executePlan, renderReport } from "../agent/execute";
 import { Draft } from "../agent/draft";
-import { LlmError, ollamaLlm } from "../agent/llm";
+import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
 import { parseBrief } from "../agent/brief";
 import { briefRules, planBrief } from "../agent/planner";
 import { renderPlan, resolveDraft } from "../agent/resolve";
@@ -71,6 +72,8 @@ async function main(): Promise<number> {
     modelName = config.ollamaModel;
     console.log(`asking ${modelName} to plan ${brief.changes.length} changes, one at a time (on this PC) ...`);
     const started = Date.now();
+    // Start cold, the same condition the benchmark measures (Ollama's prompt cache changes answers). --warm skips it.
+    if (!args.includes("--warm")) await ollamaUnload(config.ollamaUrl, config.ollamaModel);
     const out = await planBrief(ollamaLlm(config.ollamaUrl, config.ollamaModel), brief, summary, summaryText, { runId, briefName }, (o) =>
       console.log(
         `  change ${o.line}: ${o.type === "failed" ? `FAILED after ${o.tries} tries (${o.problems[0]})` : o.type === "steps" ? `${o.steps} step${o.steps === 1 ? "" : "s"}` : o.type}` +
