@@ -99,8 +99,13 @@ describe("summarizeRoom", () => {
   it("counts every repeated part, even past 100 (real bug: 115 downlights printed as 100)", async () => {
     const { sketchup, client } = setup();
     const lights = sketchup.allEntities().find((e) => e.name.startsWith("CEILING LIGHTS"))!;
+    // Like the real model: each downlight has parts of its own (4 here), which used to eat the search limit.
+    for (const d of sketchup.allEntities().filter((x) => x.parentId === lights.entityId)) {
+      for (let p = 0; p < 4; p++) sketchup.addEntity({ type: "Group", name: "lamp part", tag: "Layer0", parentId: d.entityId, bounds: d.bounds });
+    }
     for (let i = 0; i < 112; i++) {
-      sketchup.addEntity({ type: "Group", name: "downlight", tag: "Layer0", parentId: lights.entityId, bounds: lights.bounds });
+      const d = sketchup.addEntity({ type: "Group", name: "downlight", tag: "Layer0", parentId: lights.entityId, bounds: lights.bounds });
+      for (let p = 0; p < 4; p++) sketchup.addEntity({ type: "Group", name: "lamp part", tag: "Layer0", parentId: d.entityId, bounds: d.bounds });
     }
     const s = await summarizeRoom(client, { path: [ROOM] });
     const item = s.items.find((i) => i.name.startsWith("CEILING LIGHTS"))!;

@@ -20,6 +20,7 @@ export type RunResult = {
 export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r: ActionResult) => void = () => {}): Promise<RunResult> {
   if (plan.errors.length) throw new Error("this plan has errors and must not run");
   const built = new Map<string, number>(); // step id -> entityId
+  let jobGroupId: number | null = null;
   const results: ActionResult[] = [];
   let savedPath: string | null = null;
   let imagePath: string | null = null;
@@ -36,6 +37,7 @@ export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r
       }
       args = { ...args, target: { entityId: id } };
     }
+    if (a.zoomToJobGroup && jobGroupId !== null) args = { ...args, zoomTo: { entityId: jobGroupId } };
 
     const started = Date.now();
     const res = await client.call(a.tool as ToolName, args as never);
@@ -51,6 +53,7 @@ export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r
     let message = "ok";
     if (a.builds && typeof data.entityId === "number") {
       built.set(a.builds, data.entityId);
+      if (typeof data.jobGroupId === "number") jobGroupId = data.jobGroupId;
       const wb = data.worldBounds as { min: number[]; max: number[] } | undefined;
       const vol = typeof data.volumeM3 === "number" ? `, volume ${data.volumeM3.toFixed(4)} m³` : "";
       message = wb ? `built, measured ${wb.min.map((v, i) => (wb.max[i]! - v).toFixed(3)).join(" x ")} m${vol}` : "built";

@@ -43,32 +43,62 @@ export const Material = z.strictObject({
 
 const Line = z.number().int().min(1).max(99); // the numbered change in the brief this step comes from
 
+const Build = z.strictObject({
+  op: z.literal("build"),
+  id: StepId,
+  name: Label,
+  placement: Placement,
+  height: Metres(0.005, 4), // for "onTop": the thickness
+  base: Metres(0, 4).default(0), // bottom above the floor level (ignored for "onTop")
+  tag: Label,
+  material: Material.optional(),
+});
+const Replace = z.strictObject({ op: z.literal("replace"), target: Ref });
+const HideTag = z.strictObject({ op: z.literal("hideTag"), tag: Label });
+const ShowTag = z.strictObject({ op: z.literal("showTag"), tag: Label });
+const Screenshot = z.strictObject({ op: z.literal("screenshot") });
+const Save = z.strictObject({ op: z.literal("save"), fileName: z.string().trim().min(1).max(80) });
+
+/** One step as the model writes it for ONE brief change (the code adds the line number). */
+export const ChangeStep = z.discriminatedUnion("op", [Replace, Build, HideTag, ShowTag, Screenshot, Save]);
+export type ChangeStep = z.infer<typeof ChangeStep>;
+
+/** A step in the whole draft: the same, plus the brief line it comes from. */
 export const DraftStep = z.discriminatedUnion("op", [
-  z.strictObject({ op: z.literal("replace"), line: Line, target: Ref }),
-  z.strictObject({
-    op: z.literal("build"),
-    line: Line,
-    id: StepId,
-    name: Label,
-    placement: Placement,
-    height: Metres(0.005, 4), // for "onTop": the thickness
-    base: Metres(0, 4).default(0), // bottom above the floor level (ignored for "onTop")
-    tag: Label,
-    material: Material.optional(),
-  }),
-  z.strictObject({ op: z.literal("hideTag"), line: Line, tag: Label }),
-  z.strictObject({ op: z.literal("showTag"), line: Line, tag: Label }),
-  z.strictObject({ op: z.literal("screenshot"), line: Line }),
-  z.strictObject({ op: z.literal("save"), line: Line, fileName: z.string().trim().min(1).max(80) }),
+  Replace.extend({ line: Line }),
+  Build.extend({ line: Line }),
+  HideTag.extend({ line: Line }),
+  ShowTag.extend({ line: Line }),
+  Screenshot.extend({ line: Line }),
+  Save.extend({ line: Line }),
 ]);
 export type DraftStep = z.infer<typeof DraftStep>;
 
+export const NotDone = z.strictObject({ line: Line.optional(), what: z.string().max(200), reason: z.string().max(300) });
+
 export const Draft = z.strictObject({
   steps: z.array(DraftStep).min(1).max(40),
-  // changes the model could not turn into steps (e.g. marked "(later)"), with a short reason
-  notDone: z.array(z.strictObject({ what: z.string().max(200), reason: z.string().max(200) })).default([]),
+  // changes that were not turned into steps (marked "(later)", or the model couldn't), with the reason
+  notDone: z.array(NotDone).default([]),
 });
 export type Draft = z.infer<typeof Draft>;
+
+/**
+ * The model's answer for ONE brief change:
+ * - "steps": the steps for this change;
+ * - "rule": the change is a rule for other changes (a tag or material to use), so no steps of its own;
+ * - "notPossible": none of the operations can do it (reason says which operation is missing).
+ */
+export const ChangeAnswer = z.strictObject({
+  type: z.enum(["steps", "rule", "notPossible"]),
+  steps: z.array(ChangeStep).max(8),
+  reason: z.string().max(300),
+});
+export type ChangeAnswer = z.infer<typeof ChangeAnswer>;
+
+export function changeAnswerJsonSchema(): Record<string, unknown> {
+  return ollamaSafe(z.toJSONSchema(ChangeAnswer, { io: "input" })) as Record<string, unknown>;
+}
 
 /** JSON Schema handed to Ollama, so the model can only produce this shape. */
 export function draftJsonSchema(): Record<string, unknown> {

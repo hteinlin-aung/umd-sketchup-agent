@@ -263,6 +263,26 @@ result, check results, fixes tried, screenshots, the saved file, and what's stil
 
 ---
 
+## 8b. Local models and hardware (agreed 2026-11-11, to apply in later steps)
+
+Windows PC: i9-12900K, **128 GB DDR5** (4 × DIMM, 4000 MT/s), RTX 4060 **8 GB** (shared with SketchUp),
+ROG Strix Z790-E Gaming WiFi II (main slot can split x8/x8). Power supply wattage: unknown yet.
+
+- **No hardware purchase now. Measure first:** a benchmark command runs each model several times on brief 1 and
+  scores it against `instructions/1F_reception.draft.json` (changes right out of 8, errors, seconds).
+- **Candidates** (all free, Ollama): `qwen3:4b` (now), `qwen3:8b` (thinking off), `qwen2.5:7b-instruct`,
+  `qwen3:30b-a3b` instruct (MoE: part on the GPU, the rest in the 128 GB RAM), `gpt-oss:20b`;
+  `gpt-oss:120b` as a slow "careful mode". Check exact tags on ollama.com/library before pulling.
+- **Model ladder:** fast local model plans each change → a change that fails twice is retried with a bigger local
+  model → only then a paid cloud model, and only with `UMD_ALLOW_PAID=true` and a per-change y/n showing the cost.
+  Every report records which model planned which change. (`llm.ts` already hides the model behind one interface.)
+- **Upgrade only if the benchmark shows speed is the problem:** a 16 GB card (RTX 5060 Ti 16 GB, ~US$430–500 in
+  Nov 2026), replacing the 4060 or added beside it (8 + 16 = 24 GB). Used RTX 3090 not worth it at ~US$1,500+.
+  VRAM can't be upgraded on its own.
+- **Inputs later:** one folder per project (`brief.md`, `plans/` for DXF/DWG, `runs/`); a chat panel inside
+  SketchUp on top of the same files; DWG imported by SketchUp itself into a locked reference group, then
+  summarised for the model (the model never reads raw drawings).
+
 ## 9. Postponed (kept in mind, not built now)
 
 | Feature | Why later | What it would need |
@@ -285,6 +305,9 @@ result, check results, fixes tried, screenshots, the saved file, and what's stil
   `geometry/checks.ts`. These are pure functions, tested on the Mac. I also run every `npm install`,
   run the Windows tests, approve operations, and write the instruction files.
 - Code style: plain, readable TypeScript; comments only where they help.
+- **Two code editors (since 2026-11-11):** the Windows chat may now edit, test and push too. Rules:
+  always `git pull` before editing; each open item has ONE owner (said in the report that hands it over);
+  the Mac chat checks the Mac folder is clean and at origin before writing files; small commits, pushed promptly.
 
 ---
 
@@ -330,3 +353,5 @@ result, check results, fixes tried, screenshots, the saved file, and what's stil
 - 2026-11-11: **2b run on Windows** (commit a8c1a36): `summary` on the real dev reception: 12 items, floor 1.489, the Sofa set 4 warning fired; 1 getModelInfo + 1 inspectEntity + 16 findEntities, all read-only, ~10.5 s. `smoke:w2` 10/10 and **4b confirmed in the bridge log** (Ruby refused the bow-tie). Fixed from the report: materials were cut twice without saying so and were mostly 3D Warehouse noise → now only `UMD …` design materials are listed and the rest counted; contents capped at 8 (+N more); walk two levels deep instead of three; prints time and size. 170 Vitest. Open: summary on the MASTER room (size/speed), `levels` on the real MASTER (twice hit `UMD_DEV_MASTER_test.skp` by mistake; 2 Nov levels still stand).
 - 2026-11-11: **2b checked on the MASTER** (commit e9858aa): summary in 15.1 s, 6,197 characters (~1,550 tokens), bounds identical to the dev copy; only `UMD …` design materials listed (10). `levels` finally ran on the real MASTER (27 probes): confirms 1F 1.489 · 2F 5.479 · 3F 10.979 · roof 15.979, plus finish overlays 1.491–1.492 / 10.982–10.983 and a 2F roof slab at 10.704. Two bugs fixed: the contents limit under-counted repeats (115 downlights printed as 100 → limit 500 + a warning when a list is incomplete), and tags already named "(hidden)" printed it twice. The mock reception scene now has the 12 real items with their real boxes.
 - 2026-11-11: **Week 2 step 2c written (mock-tested).** `npm run agent -- <brief> "<room>"`: summary (2b) → Ollama `qwen3:4b-instruct` answers with a **draft** in a fixed JSON shape (Ollama is given the JSON schema) → the code **resolves** it: refs → persistentIds, placements ("1.2 m east of R1, 3.0 along, 0.7 across", "on top of S1 with 0.05 overhang") → exact footprints, every call checked by the tool's own Zod schema, boxes compared with every visible item (overlap warnings), a save is required, nothing may come after it, saved names get the run id → **plan shown with each target's real contents** → you type `y` → actions run one by one, stop at the first failure → `runs/agent_<time>/` holds summary, the model's answers, draft, plan and report. Bad answers go back to the model with the exact problems (one retry). `--dry` plans only; `--draft file.json` runs a reviewed draft without the model; on the MASTER it plans only. The model never writes coordinates or tool calls. Reference answer for brief 1: `instructions/1F_reception.draft.json`. On the real positions it flags two things to check: the forest bench's box overlaps the lounge bay's box (R10), and the north entrance kerb overlaps the NE lounge (R11). Verified here: typecheck, 195 Vitest (23 new in agent.test.ts), 123 Ruby.
+- 2026-11-11: **Windows run of 2c** (Windows now edits too: fix **543957a** by the Windows chat). (1) Ollama rejected the draft schema: zod 4 writes tuples as `prefixItems` + `items:false`, Ollama needs `items` as an object → `ollamaSafe()` in draft.ts rewrites them. (2) **`--draft` real run 15/15**: every size exact (counter 0.700×3.000×1.050, top 0.800×3.100×0.040, bench 0.500×6.000×0.450, kerbs 4.000×0.600×0.350), both materials created, Sofa set 4 hidden on the replaced tag, copy saved (74.4 MB, 4.9 s), checked independently with findEntities. (3) **`--dry` with qwen3:4b failed**: 70 s, 2 tries, zero build steps, every build put in notDone "needs coordinates", then a hide/screenshot/show loop to the 40-step cap, `line` used as a counter; the checker only reported "never saves a copy". (4) The 100× vs 115 downlights bug was real: the depth-2 walk let parts-of-parts use up the 500 limit (115 × 5 > 500).
+- 2026-11-11: **Planner rework (Mac chat).** The model is now asked about **one numbered change at a time** (`brief.ts` reads the changes and the "(later)" items; `planner.ts` `planBrief`). Each answer is `{type: steps | rule | notPossible, steps, reason}`; the code adds the line number and renumbers build ids (keeping onTop links). Each answer is checked: not JSON / wrong shape, "steps" with no steps, a real change called a rule, **notPossible because of coordinates/camera** (rejected: the program computes those), repeated steps, and everything the resolver finds (unknown refs, onTop of nothing, bad sizes). All problems go back to the model; after 2 tries the change becomes NOT DONE with the reasons and the rest is still planned. Prompt rewritten ("you never need coordinates …"), one worked example. Resolver now also refuses repeated identical steps and hide/show loops. Screenshot frames the new shapes (job group) instead of the whole room. Summary counts direct parts only (exact up to 500), with a regression test that reproduces "100× downlight". Verified here: typecheck, 205 Vitest, smoke:mock 10/10, agent --draft on the mock 15/15. Open: Windows runs `agent --dry` with qwen3:4b; owner of the bigger-model trial: Windows.

@@ -1,95 +1,210 @@
-import { Draft, draftJsonSchema } from "./draft";
+import type { RoomSummary } from "../summary/roomSummary";
+import type { Brief, BriefChange } from "./brief";
+import { ChangeAnswer, changeAnswerJsonSchema, type ChangeStep, type Draft, type DraftStep } from "./draft";
 import type { ChatMessage, Llm } from "./llm";
+import { resolveDraft, type ResolveOptions } from "./resolve";
 
 /**
- * Step 2c: asks the language model for a draft plan.
+ * Step 2c: asks the language model for a plan, ONE brief change at a time.
  *
- * The model gets the room summary (2b) and your brief, and must answer with JSON in the
- * Draft shape. If the answer doesn't parse, or `check` finds problems (for example a ref
- * that doesn't exist), the model is told exactly what was wrong and gets one more try.
+ * The first version asked for the whole brief in one answer. On Windows (2026-11-11)
+ * qwen3:4b then built nothing, said it "needed coordinates", and repeated
+ * hide/screenshot/show until the step limit. A small model does much better with a
+ * small question: "plan change 2 only; here is the room; earlier changes made S1".
+ *
+ * Every answer is checked (shape, repeats, refs, arithmetic via the resolver). Problems
+ * go back to the model with the exact reasons for one more try. A change that still fails
+ * is reported as NOT DONE with those reasons; the rest of the plan carries on, and you
+ * decide at the y/n.
  */
 
-export const SYSTEM_PROMPT = `You turn an interior designer's brief into a plan for a SketchUp model.
-You never draw and you never calculate coordinates: the program does that. Answer with JSON only.
+export const SYSTEM_PROMPT = `You help an interior designer change a SketchUp model. You get the ROOM SUMMARY, the
+whole BRIEF, and ONE change from the brief to plan. Answer with JSON only.
 
-Operations (one object per step, in the order of the brief):
-- {"op":"replace","line":N,"target":"R5"}  hides an existing item (moved to a hidden "replaced" tag, never deleted)
-- {"op":"build","line":N,"id":"S1","name":"...","placement":{...},"height":H,"base":0,"tag":"...","material":{"name":"...","rgb":[r,g,b]}}
-    a new solid block. height in metres. base = height of its bottom above the floor (0 = standing on the floor).
-    placement "beside": {"kind":"beside","anchor":"R1","side":"east","gap":G,"along":L,"across":D,"shift":0}
-      next to an existing item. side = which side of that item (east, west, north, south).
-      gap = clear distance from that side. along = length running ALONG that side. across = depth going AWAY from it.
-      shift = slide along the side from the item's centre (+ = north or east, - = south or west), 0 = centred.
-    placement "onTop": {"kind":"onTop","of":"S1","overhang":O}
-      on top of an earlier build step; overhang = how much bigger on every side. height is then the thickness.
-- {"op":"hideTag","line":N,"tag":"..."} and {"op":"showTag","line":N,"tag":"..."}
-- {"op":"screenshot","line":N}
-- {"op":"save","line":N,"fileName":"..."}
+You never need coordinates, camera angles or alignment: the program calculates all of that from your
+placement words. So never say a change is impossible because of positions, coordinates or the camera.
+
+Answer: {"type": "steps" | "rule" | "notPossible", "steps": [...], "reason": "..."}
+- "steps": the change is done with the operations below (usually 1 to 4 steps).
+- "rule": the change only says which tag, material or name OTHER changes must use. No steps.
+- "notPossible": it needs something not in the list below (doors, 3D Warehouse components, lowering a
+  floor, a camera scene). Say which in "reason". No steps.
+
+Operations:
+- {"op":"replace","target":"R5"}  hide an existing item (moved to a hidden "replaced" tag, never deleted)
+- {"op":"build","id":"S1","name":"...","placement":{...},"height":H,"base":0,"tag":"...","material":{"name":"...","rgb":[r,g,b]}}
+    a new solid block. height in metres. base = how high its bottom is above the floor (0 = on the floor).
+    placement "beside" = next to an existing item:
+      {"kind":"beside","anchor":"R1","side":"east","gap":1.2,"along":3.0,"across":0.7,"shift":0}
+      side: which side of that item (east, west, north, south). gap: clear distance from that side.
+      along: length running ALONG that side. across: depth going AWAY from the item.
+      shift: slide along the side from the item's centre (+ = north/east, - = south/west). 0 = centred.
+    placement "onTop" = on an earlier block:  {"kind":"onTop","of":"S1","overhang":0.05}
+      height is then the thickness.
+- {"op":"hideTag","tag":"..."}   {"op":"showTag","tag":"..."}
+- {"op":"screenshot"}   (the program frames the view)
+- {"op":"save","fileName":"..."}
 
 Rules:
-- Only use refs (R1, R2, ...) that are in the ROOM SUMMARY. Pick the item whose name matches the brief's words.
-- line = the number of the brief change the step comes from.
-- Every build step has a new id: S1, S2, S3 ...
-- Use the brief's sizes exactly, in metres. Apply the brief's tag and material rules to every build step.
-- If a change can't be done with these operations (marked "(later)", doors, components, lowering a floor ...),
-  don't invent steps: put it in "notDone" with a short reason.
+- Only use refs (R1, R2 ...) from the ROOM SUMMARY; pick the item whose name matches the brief's words.
+- Use the brief's sizes exactly, in metres. Use the tag and material the brief's rules give.
+- New build ids: use exactly the ids you are told to use, in order.
+- Never repeat a step.`;
 
-Example (a different room): "1. Hide the old table. 2. Add a 2.0 m long, 0.4 m deep, 0.9 m high shelf 0.5 m
-south of the window wall, centred. 3. Save as test.skp" with a summary where R2 = old table, R4 = window wall:
-{"steps":[{"op":"replace","line":1,"target":"R2"},
-{"op":"build","line":2,"id":"S1","name":"shelf","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.5,"along":2.0,"across":0.4,"shift":0},"height":0.9,"base":0,"tag":"Furniture (AGENT)"},
-{"op":"save","line":3,"fileName":"test.skp"}],"notDone":[]}`;
+const EXAMPLE = `Example (another room). Change: "2. Add a shelf 2.0 m long, 0.4 m deep, 0.9 m high, 0.5 m south of the
+window wall, centred, in oak." R4 is the window wall; the brief's rules say tag "Furniture (AGENT)" and oak = RGB 180,140,90.
+New build ids: S3. Answer:
+{"type":"steps","steps":[{"op":"build","id":"S3","name":"Shelf - oak","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.5,"along":2.0,"across":0.4,"shift":0},"height":0.9,"base":0,"tag":"Furniture (AGENT)","material":{"name":"Oak","rgb":[180,140,90]}}],"reason":""}`;
 
-export function firstMessages(brief: string, summaryText: string): ChatMessage[] {
-  return [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `ROOM SUMMARY:\n${summaryText}\n\nBRIEF:\n${brief}\n\nAnswer with the JSON plan.` },
-  ];
-}
+export type ChangeOutcome = {
+  line: number;
+  type: ChangeAnswer["type"] | "failed";
+  steps: number;
+  tries: number;
+  problems: string[]; // left after the last try (only for "failed")
+  seconds: number;
+};
 
-export type DraftResult = { draft: Draft; answers: string[]; tries: number };
+export type PlanResult = { draft: Draft; answers: { line: number; text: string }[]; outcomes: ChangeOutcome[] };
 
-export class PlanningError extends Error {
-  constructor(
-    message: string,
-    readonly answers: string[],
-  ) {
-    super(message);
-  }
-}
+const VAGUE_REASON = /coordinat|position|exact|align|camera|view|orientation|finali[sz]|not specified|unknown location/i;
 
-export async function draftPlan(
+export async function planBrief(
   llm: Llm,
-  brief: string,
+  brief: Brief,
+  summary: RoomSummary,
   summaryText: string,
-  check: (d: Draft) => string[] = () => [],
-  maxTries = 2,
-): Promise<DraftResult> {
-  const messages = firstMessages(brief, summaryText);
-  const schema = draftJsonSchema();
-  const answers: string[] = [];
-  let problems: string[] = [];
-  for (let attempt = 1; attempt <= maxTries; attempt++) {
-    const answer = await llm(messages, schema);
-    answers.push(answer);
-    problems = problemsWith(answer, check);
-    if (problems.length === 0) return { draft: Draft.parse(JSON.parse(answer)), answers, tries: attempt };
-    messages.push(
-      { role: "assistant", content: answer },
-      { role: "user", content: `That plan has problems:\n- ${problems.join("\n- ")}\nAnswer again with the corrected JSON plan only.` },
-    );
+  opts: ResolveOptions,
+  onChange: (o: ChangeOutcome) => void = () => {},
+): Promise<PlanResult> {
+  const schema = changeAnswerJsonSchema();
+  const steps: DraftStep[] = [];
+  const notDone: Draft["notDone"] = [];
+  const answers: PlanResult["answers"] = [];
+  const outcomes: ChangeOutcome[] = [];
+
+  for (const change of brief.changes) {
+    const started = Date.now();
+    const firstId = nextBuildNumber(steps);
+    const messages: ChatMessage[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: changeQuestion(brief, change, summaryText, steps, firstId) },
+    ];
+    let accepted: ChangeAnswer | null = null;
+    let problems: string[] = [];
+    let tries = 0;
+    for (tries = 1; tries <= 2; tries++) {
+      const text = await llm(messages, schema);
+      answers.push({ line: change.line, text });
+      const checked = checkAnswer(text, change, steps, firstId, summary, opts);
+      problems = checked.problems;
+      if (problems.length === 0) {
+        accepted = checked.answer;
+        break;
+      }
+      messages.push(
+        { role: "assistant", content: text },
+        { role: "user", content: `That answer has problems:\n- ${problems.join("\n- ")}\nAnswer again for change ${change.line} only, with corrected JSON.` },
+      );
+    }
+
+    const seconds = Math.round((Date.now() - started) / 1000);
+    let outcome: ChangeOutcome;
+    if (!accepted) {
+      notDone.push({ line: change.line, what: short(change.text), reason: `the model could not plan it: ${problems.join("; ")}`.slice(0, 300) });
+      outcome = { line: change.line, type: "failed", steps: 0, tries: tries - 1, problems, seconds };
+    } else {
+      if (accepted.type === "notPossible") notDone.push({ line: change.line, what: short(change.text), reason: accepted.reason || "not possible with the current tools" });
+      for (const st of accepted.steps) steps.push({ ...st, line: change.line } as DraftStep);
+      outcome = { line: change.line, type: accepted.type, steps: accepted.steps.length, tries, problems: [], seconds };
+    }
+    outcomes.push(outcome);
+    onChange(outcome);
   }
-  throw new PlanningError(`the model's plan still has problems after ${maxTries} tries:\n- ${problems.join("\n- ")}`, answers);
+
+  for (const item of brief.later) notDone.push({ what: short(item), reason: 'marked "(later)" in the brief' });
+  if (steps.length === 0) throw new Error("the model produced no steps at all; see the answers in the run folder");
+  return { draft: { steps, notDone }, answers, outcomes };
 }
 
-function problemsWith(answer: string, check: (d: Draft) => string[]): string[] {
+function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, done: DraftStep[], firstId: number): string {
+  const builds = done.filter((s) => s.op === "build").map((s) => `${(s as { id: string }).id} = "${(s as { name: string }).name}" (change ${s.line})`);
+  return [
+    `ROOM SUMMARY:\n${summaryText}`,
+    `BRIEF (all of it, for context and rules):\n${brief.text.trim()}`,
+    builds.length ? `Already planned blocks: ${builds.join("; ")}` : "Nothing built yet.",
+    EXAMPLE,
+    `Now plan ONLY change ${change.line}: "${change.text}"`,
+    `New build ids for this change: S${firstId}, S${firstId + 1}, ... in order.`,
+  ].join("\n\n");
+}
+
+/** Checks one answer. Returns the problems in plain words (empty = accepted). */
+export function checkAnswer(
+  text: string,
+  change: BriefChange,
+  done: DraftStep[],
+  firstId: number,
+  summary: RoomSummary,
+  opts: ResolveOptions,
+): { answer: ChangeAnswer | null; problems: string[] } {
   let json: unknown;
   try {
-    json = JSON.parse(answer);
+    json = JSON.parse(text);
   } catch {
-    return ["the answer is not valid JSON"];
+    return { answer: null, problems: ["the answer is not valid JSON"] };
   }
-  const parsed = Draft.safeParse(json);
-  if (!parsed.success) return parsed.error.issues.slice(0, 8).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`);
-  return check(parsed.data);
+  const parsed = ChangeAnswer.safeParse(json);
+  if (!parsed.success) {
+    return { answer: null, problems: parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`) };
+  }
+  const answer = renumber(parsed.data, firstId);
+  const problems: string[] = [];
+
+  if (answer.type === "steps" && answer.steps.length === 0) problems.push('type is "steps" but there are no steps');
+  if (answer.type !== "steps" && answer.steps.length > 0) problems.push(`type is "${answer.type}" but steps were given; use "steps"`);
+  if (answer.type === "notPossible" && VAGUE_REASON.test(answer.reason)) {
+    problems.push("positions, coordinates, alignment and the camera are calculated by the program, so they never make a change impossible; use build/screenshot steps");
+  }
+  if (answer.type === "rule" && /\b(add|build|hide|replace|take out|save|screenshot)\b/i.test(change.text) && !/\b(put|use|tag|material)\b.{0,40}\b(everything|all|new)\b/i.test(change.text)) {
+    problems.push(`change ${change.line} asks for something to be done, so it is not only a rule; give its steps`);
+  }
+
+  const keys = answer.steps.map((s) => JSON.stringify(s));
+  if (new Set(keys).size < keys.length) problems.push("the same step appears more than once");
+
+
+  // Run the resolver on everything so far + this answer: catches unknown refs, bad sizes, onTop of nothing ...
+  if (problems.length === 0 && answer.steps.length > 0) {
+    const trial: DraftStep[] = [...done, ...answer.steps.map((s) => ({ ...s, line: change.line }) as DraftStep)];
+    const hasSave = trial.some((s) => s.op === "save");
+    const plan = resolveDraft({ steps: hasSave ? trial : [...trial, { op: "save", line: change.line, fileName: "check" }], notDone: [] }, summary, opts);
+    for (const e of plan.errors) if (e.startsWith(`line ${change.line}:`) || e.startsWith("action ")) problems.push(e.replace(/^line \d+: /, ""));
+  }
+  return { answer, problems };
 }
+
+/**
+ * The model is told which build ids to use, but small models miscount. Ids are only labels, so the code
+ * renames this change's builds to S<firstId>, S<firstId+1>, ... and fixes "onTop" links between them.
+ * Links to blocks from EARLIER changes are left alone (the resolver checks they exist).
+ */
+function renumber(answer: ChangeAnswer, firstId: number): ChangeAnswer {
+  const map = new Map<string, string>();
+  let next = firstId;
+  for (const st of answer.steps) if (st.op === "build" && !map.has(st.id)) map.set(st.id, `S${next++}`);
+  const steps = answer.steps.map((st): ChangeStep => {
+    if (st.op !== "build") return st;
+    const placement = st.placement.kind === "onTop" && map.has(st.placement.of) && st.placement.of !== st.id
+      ? { ...st.placement, of: map.get(st.placement.of)! }
+      : st.placement;
+    return { ...st, id: map.get(st.id)!, placement };
+  });
+  return { ...answer, steps };
+}
+
+function nextBuildNumber(steps: DraftStep[]): number {
+  return steps.filter((s) => s.op === "build").length + 1;
+}
+
+const short = (t: string) => (t.length > 90 ? `${t.slice(0, 90)}…` : t).replace(/\*\*/g, "");

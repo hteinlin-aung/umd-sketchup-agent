@@ -21,6 +21,7 @@ export type Action = {
   warnings: string[];
   builds?: string; // step id this action creates (its entityId is needed later)
   targetsStep?: string; // fill args.target with the entityId of this step when running
+  zoomToJobGroup?: boolean; // screenshot: frame the new shapes instead of the whole room, once they exist
 };
 
 export type Plan = {
@@ -56,6 +57,19 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
     if (!it) errors.push(`line ${step.line}: ${ref} is not in the room summary (there are R1 to R${summary.items.length})`);
     return it;
   };
+
+  // A small model can get stuck repeating itself; the same step twice is never intended.
+  const seen = new Map<string, number>();
+  for (const step of draft.steps) {
+    const { line: _line, ...rest } = step;
+    const key = JSON.stringify(rest);
+    if (step.op !== "hideTag" && step.op !== "showTag" && seen.has(key)) {
+      errors.push(`line ${step.line}: the same ${step.op} step appears more than once (first at line ${seen.get(key)})`);
+    }
+    if (!seen.has(key)) seen.set(key, step.line);
+  }
+  const tagFlips = draft.steps.filter((st) => st.op === "hideTag" || st.op === "showTag").length;
+  if (tagFlips > 6) errors.push(`${tagFlips} tag hide/show steps: the plan is repeating itself`);
 
   for (const step of draft.steps) {
     if (savedAt !== null && step.op !== "save") {
@@ -161,7 +175,8 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           title: "SCREENSHOT (iso view of the room)",
           tool: "captureView",
           args: { fileName: `${safeName(opts.briefName)}_${opts.runId}.png`, zoomTo: { persistentId: summary.room.persistentId } },
-          details: [],
+          details: ["frames the new shapes (or the whole room if nothing was built)"],
+          zoomToJobGroup: true,
         });
         break;
 
@@ -272,8 +287,8 @@ export function renderPlan(plan: Plan): string {
     for (const w of a.warnings) lines.push(`      WARNING: ${w}`);
   }
   if (plan.notDone.length) {
-    lines.push("", "NOT DONE (the model says these need something it can't do yet):");
-    for (const n of plan.notDone) lines.push(`  - ${n.what}: ${n.reason}`);
+    lines.push("", "NOT DONE:");
+    for (const n of plan.notDone) lines.push(`  - ${n.line ? `line ${n.line}: ` : ""}${n.what}: ${n.reason}`);
   }
   if (plan.errors.length) {
     lines.push("", "ERRORS (nothing will run until these are fixed):");

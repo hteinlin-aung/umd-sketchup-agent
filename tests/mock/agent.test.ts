@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { Draft, draftJsonSchema, type DraftStep } from "../../src/agent/draft";
+import { parseBrief } from "../../src/agent/brief";
+import { Draft, changeAnswerJsonSchema, draftJsonSchema, type DraftStep } from "../../src/agent/draft";
 import { executePlan, renderReport } from "../../src/agent/execute";
 import type { Llm } from "../../src/agent/llm";
-import { PlanningError, draftPlan } from "../../src/agent/planner";
+import { checkAnswer, planBrief } from "../../src/agent/planner";
 import { overlaps, renderPlan, resolveDraft } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
@@ -105,47 +106,137 @@ describe("resolveDraft: the code does the arithmetic", () => {
   });
 });
 
-describe("draftPlan: asking the model", () => {
-  const answer = JSON.stringify(BRIEF1);
+// A fake model that answers each change with the reference draft's steps for that line.
+const BRIEF_TEXT = readFileSync("instructions/1F_reception.md", "utf8");
+const changeOf = (messages: { content: string }[]) => Number(messages[1]!.content.match(/Now plan ONLY change (\d+)/)![1]);
+const goodAnswer = (line: number) => {
+  const steps = BRIEF1.steps.filter((st) => st.line === line).map(({ line: _l, ...rest }) => rest);
+  return JSON.stringify(steps.length ? { type: "steps", steps, reason: "" } : { type: "rule", steps: [], reason: "tag/material rule" });
+};
+const fakeModel = (override: (line: number, attempt: number) => string | null = () => null): Llm => {
+  const attempts = new Map<number, number>();
+  return async (messages) => {
+    const line = changeOf(messages);
+    const n = (attempts.get(line) ?? 0) + 1;
+    attempts.set(line, n);
+    return override(line, n) ?? goodAnswer(line);
+  };
+};
 
-  it("accepts a good answer on the first try", async () => {
-    const llm: Llm = async () => answer;
-    const out = await draftPlan(llm, "brief", "summary");
-    expect(out.tries).toBe(1);
-    expect(out.draft.steps).toHaveLength(BRIEF1.steps.length);
+describe("parseBrief", () => {
+  it("finds the 8 numbered changes and the 4 later items in brief 1", () => {
+    const b = parseBrief(BRIEF_TEXT);
+    expect(b.changes.map((c) => c.line)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(b.changes[0]!.text).toMatch(/Sofa set 4.*Show me what is inside/); // the indented second line belongs to it
+    expect(b.later).toHaveLength(4);
+    expect(b.later[0]).toMatch(/^Lowered waiting area/);
   });
+});
 
-  it("tells the model what was wrong and lets it try again", async () => {
-    const seen: string[] = [];
-    let call = 0;
-    const llm: Llm = async (messages) => {
-      seen.push(messages.at(-1)!.content);
-      return call++ === 0 ? '{"steps": [{"op": "fly"}]}' : answer;
-    };
-    const out = await draftPlan(llm, "brief", "summary");
-    expect(out.tries).toBe(2);
-    expect(seen[1]).toMatch(/That plan has problems/);
-  });
-
-  it("feeds back problems found by the resolver too (e.g. an unknown ref)", async () => {
+describe("planBrief: asking the model one change at a time", () => {
+  it("builds the same plan as the reference draft from good answers", async () => {
     const { summary } = await setup();
-    const bad = JSON.stringify(withSteps([{ op: "replace", line: 1, target: "R40" }, SAVE]));
-    let call = 0;
-    const llm: Llm = async (messages) => (call++ === 0 ? bad : (expect(messages.at(-1)!.content).toMatch(/R40/), answer));
-    const out = await draftPlan(llm, "b", renderSummary(summary), (d) => resolveDraft(d, summary, OPTS).errors);
-    expect(out.tries).toBe(2);
+    const out = await planBrief(fakeModel(), parseBrief(BRIEF_TEXT), summary, renderSummary(summary), OPTS);
+    expect(out.draft.steps).toEqual(BRIEF1.steps);
+    expect(out.outcomes.map((o) => o.type)).toEqual(["steps", "steps", "steps", "steps", "steps", "rule", "rule", "steps"]);
+    expect(out.draft.notDone.map((n) => n.reason)).toEqual(Array(4).fill('marked "(later)" in the brief'));
+    expect(resolveDraft(out.draft, summary, OPTS).errors).toEqual([]);
   });
 
-  it("gives up after two bad answers and keeps them for you to read", async () => {
-    const llm: Llm = async () => "not json";
-    const err = await draftPlan(llm, "b", "s").catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(PlanningError);
-    expect((err as PlanningError).answers).toEqual(["not json", "not json"]);
+  it("asks about ONE change at a time and tells the model which build ids to use", async () => {
+    const { summary } = await setup();
+    const questions: string[] = [];
+    const llm: Llm = async (messages) => {
+      questions.push(messages[1]!.content);
+      return goodAnswer(changeOf(messages));
+    };
+    await planBrief(llm, parseBrief(BRIEF_TEXT), summary, renderSummary(summary), OPTS);
+    expect(questions).toHaveLength(8);
+    expect(questions[2]).toMatch(/Now plan ONLY change 3/);
+    expect(questions[2]).toMatch(/Already planned blocks: S1 = "Reception counter - light oak"/);
+    expect(questions[2]).toMatch(/New build ids for this change: S2/);
   });
 
-  it("gives Ollama a JSON schema with every operation", () => {
-    const text = JSON.stringify(draftJsonSchema());
-    for (const op of ["replace", "build", "hideTag", "showTag", "screenshot", "save", "beside", "onTop"]) expect(text).toContain(`"${op}"`);
+  it("replays the Windows failure: 'needs coordinates' is sent back, and the 2nd try is accepted", async () => {
+    const { summary } = await setup();
+    const feedback: string[] = [];
+    const base = fakeModel((line, attempt) =>
+      line === 2 && attempt === 1
+        ? JSON.stringify({ type: "notPossible", steps: [], reason: "Cannot place a counter without knowing the exact coordinates" })
+        : null,
+    );
+    const llm: Llm = async (messages) => {
+      if (messages.length > 2) feedback.push(messages.at(-1)!.content);
+      return base(messages, {});
+    };
+    const out = await planBrief(llm, parseBrief(BRIEF_TEXT), summary, renderSummary(summary), OPTS);
+    expect(feedback[0]).toMatch(/calculated by the program/);
+    expect(out.outcomes[1]).toMatchObject({ line: 2, type: "steps", tries: 2 });
+  });
+
+  it.each<[string, string, RegExp]>([
+    ["the same step twice", JSON.stringify({ type: "steps", steps: [{ op: "screenshot" }, { op: "screenshot" }], reason: "" }), /more than once/],
+    ["steps with no steps", JSON.stringify({ type: "steps", steps: [], reason: "" }), /no steps/],
+    ["a ref that doesn't exist", JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R40" }], reason: "" }), /R40 is not in the room summary/],
+    [
+      "a top on a block that doesn't exist",
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S7", name: "x", placement: { kind: "onTop", of: "S5", overhang: 0 }, height: 0.1, tag: "T" }], reason: "" }),
+      /not built before it/,
+    ],
+    ["calling a real change a rule", JSON.stringify({ type: "rule", steps: [], reason: "" }), /not only a rule/],
+    ["not JSON", "Sure! Here is the plan:", /not valid JSON/],
+  ])("rejects %s, with a reason the model can act on", async (_, answer, problem) => {
+    const { summary } = await setup();
+    const change = { line: 2, text: "New reception counter. Add a counter ..." };
+    expect(checkAnswer(answer, change, [], 1, summary, OPTS).problems.join("\n")).toMatch(problem);
+  });
+
+  it("renumbers the model's build ids and keeps its onTop links pointing at the right block", async () => {
+    const { summary } = await setup();
+    const answer = JSON.stringify({
+      type: "steps",
+      steps: [
+        { op: "build", id: "S9", name: "counter", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, along: 3, across: 0.7 }, height: 1.05, tag: "T" },
+        { op: "build", id: "S4", name: "top", placement: { kind: "onTop", of: "S9", overhang: 0.05 }, height: 0.04, tag: "T" },
+      ],
+      reason: "",
+    });
+    const { answer: fixed, problems } = checkAnswer(answer, { line: 2, text: "Add a counter with a top" }, [], 1, summary, OPTS);
+    expect(problems).toEqual([]);
+    expect(fixed!.steps.map((st) => (st.op === "build" ? [st.id, st.placement.kind === "onTop" ? st.placement.of : "-"] : null))).toEqual([
+      ["S1", "-"],
+      ["S2", "S1"],
+    ]);
+  });
+
+  it("a change that fails twice becomes NOT DONE with the reasons, and the rest still gets planned", async () => {
+    const { summary } = await setup();
+    const llm = fakeModel((line) => (line === 4 ? JSON.stringify({ type: "steps", steps: [], reason: "" }) : null));
+    const out = await planBrief(llm, parseBrief(BRIEF_TEXT), summary, renderSummary(summary), OPTS);
+    expect(out.outcomes[3]).toMatchObject({ line: 4, type: "failed", tries: 2 });
+    expect(out.draft.notDone[0]).toMatchObject({ line: 4, reason: expect.stringMatching(/could not plan it/) });
+    expect(out.draft.steps.some((st) => st.line === 5)).toBe(true);
+  });
+
+  it("sends Ollama schemas it accepts (no prefixItems / items:false, Windows fix 543957a)", () => {
+    for (const schema of [draftJsonSchema(), changeAnswerJsonSchema()]) {
+      const text = JSON.stringify(schema);
+      expect(text).not.toContain("prefixItems");
+      expect(text).not.toContain('"items":false');
+    }
+  });
+});
+
+describe("resolveDraft: catches a model stuck in a loop", () => {
+  it("refuses the hide/screenshot/show loop seen on Windows", async () => {
+    const { summary } = await setup();
+    const loop: DraftStep[] = [];
+    for (let i = 0; i < 5; i++) {
+      loop.push({ op: "hideTag", line: 8, tag: "L" }, { op: "screenshot", line: 8 }, { op: "showTag", line: 8, tag: "L" });
+    }
+    const errors = resolveDraft(withSteps([...loop, SAVE]), summary, OPTS).errors.join("\n");
+    expect(errors).toMatch(/same screenshot step appears more than once/);
+    expect(errors).toMatch(/repeating itself/);
   });
 });
 
@@ -162,6 +253,14 @@ describe("executePlan: running the approved plan", () => {
     const sofa4 = sketchup.allEntities().find((e) => e.name.startsWith("Sofa set 4"))!;
     expect(sofa4.tag).toBe("zz_REPLACED by 1F_reception line 1 (hidden)");
     expect(sketchup.tags.get("1F Reception - Lighting (T128)")).toBe(true); // shown again before saving
+  });
+
+  it("frames the screenshot on the new shapes (Windows: the room filled only a quarter of the image)", async () => {
+    const { sketchup, client, summary } = await setup();
+    await executePlan(client, resolveDraft(BRIEF1, summary, OPTS));
+    const shot = sketchup.received.find((c) => c.tool === "captureView")!;
+    const job = sketchup.allEntities().find((e) => e.name === "AGENT 1F_reception test")!;
+    expect(shot.args.zoomTo).toEqual({ entityId: job.entityId });
   });
 
   it("stops at the first failure and does not save", async () => {

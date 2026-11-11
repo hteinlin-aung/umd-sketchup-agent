@@ -129,11 +129,11 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
 
   const items: SummaryItem[] = [];
   for (const [i, e] of direct.data.matches.entries()) {
-    // Two levels deep is enough to see what something really is, and keeps big models fast.
-    // The limit is on everything found (both levels), so it must be high or repeated parts get under-counted.
-    const inside = await client.call("findEntities", { within: { persistentId: e.persistentId }, maxDepth: 2, limit: 500 });
+    // Direct parts only. The search limit counts EVERYTHING found, so going deeper let parts-of-parts
+    // use up the limit: 115 downlights with 4 parts each were cut at 500 = 100 downlights (Windows, 2026-11-11).
+    const inside = await client.call("findEntities", { within: { persistentId: e.persistentId }, maxDepth: 1, limit: 500 });
     const all: Found[] = inside.ok ? inside.data.matches : [];
-    const childLabels = all.filter((c) => c.depth === 1).map(labelOf);
+    const childLabels = all.map(labelOf);
     const allLabels = all.map(labelOf).filter(Boolean);
     const name = labelOf(e) || "(unnamed)";
     const warnings: string[] = [];
