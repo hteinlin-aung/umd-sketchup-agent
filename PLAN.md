@@ -1,6 +1,6 @@
 # UMD SketchUp Agent — PLAN
 
-*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: **Week 1 DONE 2026-10-29** · Week 2 step 1 verified on Windows 2026-11-02 · step 2a (changing tools) written*
+*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: **Week 1 DONE 2026-10-29** · **Week 2 DONE 2026-11-12** (brief → qwen3:8b plan → approval → built and saved, 15/15) · Week 3 next*
 
 ## Summary
 
@@ -215,7 +215,7 @@ contain platform-specific binaries). Run `npm install` separately on the Mac and
 7. SketchUp closed → the app reports "no response after N s" instead of crashing.
 8. The same flow passes against the mock on the Mac (labelled as mock).
 
-### Week 2 (Nov 5 – Nov 11): read the architecture + turn instructions into operations
+### Week 2 (Nov 5 – Nov 11): read the architecture + turn instructions into operations — ✅ DONE 2026-11-12
 - Tools: `findEntities`, `inspectEntity`, `measure`, `createPrism`, `setTag`, `setTagVisibility`, `moveToReplaced`.
 - Model summary for the AI: a compact JSON of the floor (rooms/zones, groups, tags, sizes),
   small enough for a 4B model's context.
@@ -234,7 +234,10 @@ the approved targets.
 - Repair loop: issue → predefined fix → re-check → keep or roll back. Max 3 attempts per issue, then report.
 - Tools: `placeComponent`, `cutOpening`, `addScene`, `createMaterial`.
 - Screenshots after each milestone. Optional vision-model notes (flags only, never proof of correctness).
-- Compare `qwen3:4b-instruct` with one larger model that fits about 5 GB VRAM, on my real instruction files.
+- ~~Compare `qwen3:4b-instruct` with one larger model~~ done early (`npm run bench`, 2026-11-11/12): qwen3:8b chosen.
+- From the Week 2 finish: the size-direction check must follow the BLOCK, not only the change text it came from
+  (runs 2–3 built the counter rotated 90° after it migrated to change 3).
+- Brief 2 on a different room, to see the planner work beyond the room it was tuned on.
 
 **Done when:** a run with a deliberately wrong instruction (e.g. a built-in overlapping a column) is
 caught by a check, fixed by a predefined tool or reported honestly, and the run ends with a clear outcome.
@@ -361,3 +364,4 @@ ROG Strix Z790-E Gaming WiFi II (main slot can split x8/x8). Power supply wattag
 - 2026-11-11 (night): **Fixes (Mac).** Placement sizes renamed to compass directions **`eastWest` / `northSouth`** (the brief speaks in directions; "along/across the side" was the main confusion; the resolver got simpler too). New checks fed back to the model: a build in a change that asks for nothing new; a block placed beside an item this plan takes out; "on the counter / a top" must use onTop; "X m long running west / (north-south)" must match the right size; two new blocks overlapping (was a warning). Prompt rewritten with 4 examples (single block, pair with shift, onTop, take-out only). **Benchmark:** `npm run bench -- <brief> "<room>" --runs 3 --models a,b` plans the brief N times per model (read-only) and scores each change against the reference draft (same operations, boxes to 1 cm) → `runs/bench_<time>/results.md`. 223 Vitest.
 - 2026-11-11 (late): **First benchmark on Windows** (f6a38cd, 3 runs each, plans only). qwen3:8b 4.0/8, 3/3 runnable, 31 s; qwen2.5:7b-instruct 3.0/8, 0/3 runnable (counter 3 m deep, one planter, no save), 25 s; gpt-oss:20b failed (empty answer after 410 s: probably its thinking channel, and 14 GB on an 8 GB card) → dropped. Runs at temperature 0 were identical. **qwen3:8b stays.** Its remaining errors: change 3 (correct top, but emitted under change 2: a scoring artifact), the bench "along" the north-south Terrarium E built east-west (both models), planter shift ±0.9 ("1.8 m clear" read as centre to centre).
 - 2026-11-12: **Fixes (Mac).** Benchmark scores by **content** (a change is right when all its operations appear anywhere in the plan; leftovers listed as "extra"), default 1 run. The summary now says **"runs north-south / east-west"** for long items; a build "along" an item must run the same way (checked + prompt example); "X m clear between them" is checked by measuring the real gap between the two blocks (+ prompt rule). 228 Vitest.
+- 2026-11-12: **WEEK 2 DONE** (Windows, 5bec1d3). Windows planner fixes: checks for steps the model LEFT OUT (change 8 had passed with only the hideTag); the code now states the exact shift ("set shift to 1.2 on one and -1.2 on the other") and the inside face ("the inside of R12 faces west, so use side west", from the anchor's position against the room centre) instead of hints; a change already planned by the previous one is no longer NOT DONE. 235 Vitest. **Benchmark qwen3:8b, 3 runs: 8/8, 6/8, 6/8 (avg 6.7), 3/3 runnable, 39 s** (was 4.0/8, 0/3 runnable). Run 1's draft is step-for-step the reference; **built for real: 15/15**, saved `dev/UMD_DEV_1F_reception_brief1_20261112_054135.skp`, verified read-only with findEntities (every size exact, right tag, Sofa set 4 on the hidden replaced tag, dev model unsaved). Principle: **when the code can work the answer out, give the model the answer, not a hint.** Left for Week 3: runs 2–3 rotate the counter 90° when it migrates from change 2 to 3, because the "3.0 m long (north-south)" check reads the change text, not the block.
