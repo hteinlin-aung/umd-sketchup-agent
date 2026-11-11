@@ -1,4 +1,4 @@
-import type { RoomSummary } from "../summary/roomSummary";
+import { runsWhichWay, type RoomSummary } from "../summary/roomSummary";
 import type { Brief, BriefChange } from "./brief";
 import { ChangeAnswer, changeAnswerJsonSchema, type ChangeStep, type Draft, type DraftStep } from "./draft";
 import type { ChatMessage, Llm } from "./llm";
@@ -54,6 +54,8 @@ Rules:
   and never place a new block beside something that is being taken out.
 - Only steps THIS change asks for: no extra screenshots, saves, tag steps or replaces.
 - "inside" a wall or the entrance means the side facing into the room.
+- "along" an item = the block's length runs the same way as that item (see "runs north-south / east-west").
+- "X m clear between them" is the empty space between the two blocks, not centre to centre.
 - New blocks must not overlap each other. Write in English only. Never repeat a step.`;
 
 const EXAMPLE = `Example 1 (another room). Change: "2. Add a shelf 2.0 m long (east-west), 0.4 m deep, 0.9 m high, 0.5 m
@@ -71,7 +73,11 @@ New build ids: S4, S5. Answer:
 Example 3. Change: "4. A glass top on the shelf, 0.02 m thick, 0.03 m overhang." The shelf is S3. Answer:
 {"type":"steps","steps":[{"op":"build","id":"S6","name":"Shelf top - glass","placement":{"kind":"onTop","of":"S3","overhang":0.03},"height":0.02,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
 
-Example 4. Change: "1. Take out the old sofa (R2)." Answer:
+Example 4, ALONG an item. Change: "5. A bench along the west face of the wardrobe (R7), 4.0 m long, 0.45 m deep, 0.45 m high."
+The summary says R7 "runs north-south", so the bench's length (4.0) is northSouth and its depth (0.45) is eastWest:
+{"type":"steps","steps":[{"op":"build","id":"S7","name":"Bench","placement":{"kind":"beside","anchor":"R7","side":"west","gap":0,"eastWest":0.45,"northSouth":4.0,"shift":0},"height":0.45,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
+
+Example 5. Change: "1. Take out the old sofa (R2)." Answer:
 {"type":"steps","steps":[{"op":"replace","target":"R2"}],"reason":""}`;
 
 export type ChangeOutcome = {
@@ -203,6 +209,16 @@ export function checkAnswer(
     const hasSave = trial.some((s) => s.op === "save");
     const plan = resolveDraft({ steps: hasSave ? trial : [...trial, { op: "save", line: change.line, fileName: "check" }], notDone: [] }, summary, opts);
     for (const e of plan.errors) if (e.startsWith(`line ${change.line}:`) || e.startsWith("action ")) problems.push(e.replace(/^line \d+: /, ""));
+    // "keep 1.8 m clear between them": measure the real clear gap between this change's two blocks.
+    const clear = change.text.match(/(\d+(?:\.\d+)?)\s*m clear between/i);
+    const mine = plan.actions.filter((a) => a.line === change.line && a.builds);
+    if (clear && mine.length === 2) {
+      const want = Number(clear[1]);
+      const got = clearGap(mine[0]!.args.points as number[][], mine[1]!.args.points as number[][]);
+      if (Math.abs(got - want) > 0.01) {
+        problems.push(`the change wants ${want} m clear between the two blocks, they have ${got.toFixed(2)} m: shift each one by (clear gap + block width) / 2 from the middle`);
+      }
+    }
     // Outside the room is almost always a wrong side (Windows: one entrance planter went 1 m EAST of the glass wall,
     // i.e. outside the building). Overlaps with existing items stay warnings: those are your design decision.
     for (const a of plan.actions) {
@@ -246,6 +262,21 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
       problems.push(`change ${change.line} puts it ON an earlier block: use "onTop" with that block's id, not "beside"`);
     }
   }
+  // "along the east face of R8": the block's long side must run the same way as R8.
+  if (/\balong\b/i.test(t)) {
+    for (const st of answer.steps) {
+      if (st.op !== "build" || st.placement.kind !== "beside") continue;
+      const anchor = summary.items.find((it) => it.ref === (st.placement as { anchor: string }).anchor);
+      const anchorRuns = anchor ? runsWhichWay(anchor.size) : null;
+      const p = st.placement;
+      const blockRuns = runsWhichWay([p.eastWest, p.northSouth, 0]);
+      if (anchorRuns && blockRuns && anchorRuns !== blockRuns) {
+        const long = anchorRuns === "north-south" ? "northSouth" : "eastWest";
+        problems.push(`${st.id} is "along" ${p.anchor}, which runs ${anchorRuns}, so its length goes in ${long} (it runs ${blockRuns} now)`);
+      }
+    }
+  }
+
   // "4.0 m long running west" / "3.0 m long (north-south)": check the size went to the right direction.
   for (const m of t.matchAll(/(\d+(?:\.\d+)?)\s*m long\b[^.;]{0,25}?\b(east-west|north-south|west|east|north|south)\b/gi)) {
     const value = Number(m[1]);
@@ -298,6 +329,16 @@ function renumber(answer: ChangeAnswer, firstId: number): ChangeAnswer {
     return { ...st, id: map.get(st.id)!, placement };
   });
   return { ...answer, steps };
+}
+
+/** Clear distance between two rectangles (corner points), along whichever axis separates them; negative = overlap. */
+function clearGap(a: number[][], b: number[][]): number {
+  const box = (p: number[][]) => ({ x0: Math.min(...p.map((q) => q[0]!)), x1: Math.max(...p.map((q) => q[0]!)), y0: Math.min(...p.map((q) => q[1]!)), y1: Math.max(...p.map((q) => q[1]!)) });
+  const A = box(a);
+  const B = box(b);
+  const gx = Math.max(B.x0 - A.x1, A.x0 - B.x1);
+  const gy = Math.max(B.y0 - A.y1, A.y0 - B.y1);
+  return Math.max(gx, gy);
 }
 
 function nextBuildNumber(steps: DraftStep[]): number {

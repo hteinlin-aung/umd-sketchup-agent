@@ -1,5 +1,6 @@
 // Benchmark: plan the same brief several times with each model and score it against the reference plan.
-//   npm run bench -- instructions/1F_reception.md "1F RECEPTION"                       3 runs, model from .env
+//   npm run bench -- instructions/1F_reception.md "1F RECEPTION"                       1 run, model from .env
+//   (temperature 0: Windows saw 3 runs come out identical, so more runs only help after a prompt change)
 //   npm run bench -- instructions/1F_reception.md "1F RECEPTION" --runs 5 --models qwen3:8b,gpt-oss:20b
 //   --reference <draft.json>   default: the brief's name with .draft.json (instructions/1F_reception.draft.json)
 //   --mock                     fake room (only useful with a real Ollama, to test the command itself)
@@ -28,11 +29,11 @@ async function main(): Promise<number> {
   const positional = args.filter((a, i) => !a.startsWith("--") && !valued.has(args[i - 1] ?? ""));
   const [briefFile, roomQuery] = positional;
   if (!briefFile || !roomQuery) {
-    console.error('usage: npm run bench -- <brief.md> "<room name>" [--runs 3] [--models a,b] [--reference draft.json]');
+    console.error('usage: npm run bench -- <brief.md> "<room name>" [--runs 1] [--models a,b] [--reference draft.json]');
     return 2;
   }
   const config = loadConfig();
-  const runs = Number(flag(args, "--runs") ?? 3);
+  const runs = Number(flag(args, "--runs") ?? 1);
   const models = (flag(args, "--models") ?? config.ollamaModel).split(",").map((m) => m.trim()).filter(Boolean);
   const refFile = flag(args, "--reference") ?? briefFile.replace(/\.md$/i, ".draft.json");
   if (!existsSync(refFile)) throw new ConfigError(`no reference plan at ${refFile} (use --reference)`);

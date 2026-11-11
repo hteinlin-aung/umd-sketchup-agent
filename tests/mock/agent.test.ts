@@ -223,6 +223,22 @@ describe("planBrief: asking the model one change at a time", () => {
       /S2 overlaps S1, another new block/,
       "Two kerbs inside the main entrance, 0.6 m wide, 0.35 m high, one each side of the path.",
     ],
+    // From the benchmark of 2026-11-11 (both qwen3:8b and qwen2.5:7b):
+    [
+      "a bench 'along' a north-south terrarium that runs east-west",
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Forest bench", placement: { kind: "beside", anchor: "R8", side: "east", gap: 0, eastWest: 6, northSouth: 0.5 }, height: 0.45, tag: "T" }], reason: "" }),
+      /"along" R8, which runs north-south, so its length goes in northSouth/,
+      "Forest bench. A built-in light oak bench along the east face of Terrarium E, 6.0 m long, 0.5 m deep, 0.45 m high.",
+    ],
+    [
+      "1.8 m centre to centre when the brief says 1.8 m CLEAR",
+      JSON.stringify({ type: "steps", steps: [
+        { op: "build", id: "S1", name: "Kerb north", placement: { kind: "beside", anchor: "R12", side: "west", gap: 1, eastWest: 4, northSouth: 0.6, shift: 0.9 }, height: 0.35, tag: "T" },
+        { op: "build", id: "S2", name: "Kerb south", placement: { kind: "beside", anchor: "R12", side: "west", gap: 1, eastWest: 4, northSouth: 0.6, shift: -0.9 }, height: 0.35, tag: "T" },
+      ], reason: "" }),
+      /wants 1.8 m clear between the two blocks, they have 1.20 m/,
+      "Entrance planters, each 4.0 m long running west from 1.0 m inside the glass, 0.6 m wide, 0.35 m high. Keep 1.8 m clear between them for the path.",
+    ],
     ["names that switch language", JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Counter 家具", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 1.05, tag: "T" }], reason: "" }), /English only/],
   ])("rejects %s, with a reason the model can act on", async (_, answer, problem, text) => {
     const { summary } = await setup();

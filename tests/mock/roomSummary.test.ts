@@ -122,6 +122,13 @@ describe("summarizeRoom", () => {
     expect(text).not.toContain("(hidden) (hidden)");
   });
 
+  it("says which way long items run (Terrarium E runs north-south)", async () => {
+    const { client } = setup();
+    const text = renderSummary(await summarizeRoom(client, { path: [ROOM] }));
+    expect(text).toMatch(/R8 {2}Terrarium E[^\n]*\n[^\n]*\| runs north-south/);
+    expect(text).not.toMatch(/R5 {2}Sofa set 4[^\n]*\n[^\n]*\| runs/); // a 1 x 1 m item runs no particular way
+  });
+
   it("throws a clear error for a room that does not exist", async () => {
     const { client } = setup();
     await expect(summarizeRoom(client, { path: ["No such room"] })).rejects.toThrow(/room not found/);

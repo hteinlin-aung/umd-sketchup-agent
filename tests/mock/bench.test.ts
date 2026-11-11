@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { benchOnce, renderBench, scorePlan } from "../../src/agent/bench";
 import { parseBrief } from "../../src/agent/brief";
-import { Draft, type ChangeStep } from "../../src/agent/draft";
+import { Draft, type ChangeStep, type DraftStep } from "../../src/agent/draft";
 import type { Llm } from "../../src/agent/llm";
 import { resolveDraft } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
@@ -49,6 +49,22 @@ describe("benchmark scoring", () => {
     expect(score.lines.find((l) => !l.right)!.line).toBe(4); // the bench is 0.5 high instead of 0.45
   });
 
+  it("scores by content: the counter top under change 2 instead of 3 still counts (qwen3:8b, 2026-11-11)", async () => {
+    const { summary } = await setup();
+    const early = REF.steps.map((st) => (st.op === "build" && st.id === "S2" ? { ...st, line: 2 } : st));
+    const score = scorePlan(resolveDraft({ ...REF, steps: early }, summary, OPTS), resolveDraft(REF, summary, OPTS), LINES);
+    expect(score.right).toBe(8);
+    expect(score.extra).toEqual([]);
+  });
+
+  it("lists what a wrong change is missing, and actions the reference doesn't have", async () => {
+    const { summary } = await setup();
+    const steps = [...REF.steps.filter((st) => !(st.op === "build" && st.id === "S5")), { op: "screenshot", line: 1 } as DraftStep];
+    const score = scorePlan(resolveDraft({ ...REF, steps }, summary, OPTS), resolveDraft(REF, summary, OPTS), LINES);
+    expect(score.lines.find((l) => l.line === 5)!.missing[0]).toMatch(/^build x 96\.23\.\.100\.23 y 101\.78/);
+    expect(score.extra).toContain("screenshot"); // plus change 5's leftover planter and paints
+  });
+
   it("a perfect fake model scores 8/8 with a runnable plan", async () => {
     const { summary, text } = await setup();
     const r = await benchOnce(model(), "perfect", 1, BRIEF, summary, text, REF, OPTS);
@@ -75,7 +91,7 @@ describe("benchmark scoring", () => {
     const { summary, text } = await setup();
     const runs = [await benchOnce(model(), "good", 1, BRIEF, summary, text, REF, OPTS), await benchOnce(async () => "nope", "bad", 1, BRIEF, summary, text, REF, OPTS)];
     const table = renderBench(runs);
-    expect(table).toContain("| good | 1 | 8.0 / 8 | 1 / 1 |");
-    expect(table).toMatch(/\| bad \| 1 \| 0\.0 \/ 8 \| 0 \/ 1 \|/);
+    expect(table).toContain("| good | 1 | 8.0 / 8 | 0.0 | 1 / 1 |");
+    expect(table).toMatch(/\| bad \| 1 \| 0\.0 \/ 8 \| 0\.0 \| 0 \/ 1 \|/);
   });
 });

@@ -206,7 +206,8 @@ export function renderSummary(s: RoomSummary): string {
   for (const it of s.items) {
     const flags = [it.visible ? "" : "HIDDEN", it.canChange ? "" : "LOCKED"].filter(Boolean).join(", ");
     lines.push(`${it.ref}  ${it.name}${flags ? `  [${flags}]` : ""}`);
-    lines.push(`    tag: ${it.tag} | ${boxText(it.bounds)} | size ${it.size.map(fmt).join(" x ")}`);
+    const runs = runsWhichWay(it.size);
+    lines.push(`    tag: ${it.tag} | ${boxText(it.bounds)} | size ${it.size.map(fmt).join(" x ")}${runs ? ` | runs ${runs}` : ""}`);
     const more = it.contents.length - 8;
     if (it.contents.length) lines.push(`    contains: ${it.contents.slice(0, 8).join("; ")}${more > 0 ? `; ... (+${more} more)` : ""}`);
     for (const w of it.warnings) lines.push(`    WARNING: ${w}`);
@@ -220,6 +221,18 @@ export function renderSummary(s: RoomSummary): string {
   );
   for (const n of s.notes) lines.push(`NOTE: ${n}`);
   return lines.join("\n");
+}
+
+/**
+ * "north-south" when the item is clearly longer in y than in x, "east-west" the other way round, else null.
+ * Small models don't work this out from the box (Windows, 2026-11-11: both models put a bench "along" a
+ * north-south terrarium running east-west), so the summary says it in words.
+ */
+export function runsWhichWay(size: [number, number, number]): "north-south" | "east-west" | null {
+  const [x, y] = size;
+  if (y >= 1.5 * x) return "north-south";
+  if (x >= 1.5 * y) return "east-west";
+  return null;
 }
 
 function boxText(b: Bounds): string {
