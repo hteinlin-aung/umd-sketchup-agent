@@ -108,6 +108,7 @@ describe("resolveDraft: the code does the arithmetic", () => {
 
 // A fake model that answers each change with the reference draft's steps for that line.
 const BRIEF_TEXT = readFileSync("instructions/1F_reception.md", "utf8");
+const CHECK_IT = "Check it. Hide \`1F Reception - Lighting (T128)\` for the screenshot, take an iso screenshot, show the lighting tag again, then save a copy as \`UMD_DEV_1F_reception_brief1.skp\`.";
 const changeOf = (messages: { content: string }[]) => Number(messages[1]!.content.match(/Now plan ONLY change (\d+)/)![1]);
 const goodAnswer = (line: number) => {
   const steps = BRIEF1.steps.filter((st) => st.line === line).map(({ line: _l, ...rest }) => rest);
@@ -192,7 +193,7 @@ describe("planBrief: asking the model one change at a time", () => {
     [
       "a planter outside the building (qwen3:8b, change 5: 1 m EAST of the east glass wall)",
       JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Planter", placement: { kind: "beside", anchor: "R12", side: "east", gap: 1, eastWest: 4, northSouth: 0.6, shift: -1.2 }, height: 0.35, tag: "T" }], reason: "" }),
-      /S1 ends up outside the room: check "side"/,
+      /S1 ends up outside the room: the inside of R12 faces west, so use side "west"/,
       "Entrance planters. Two kerbs inside the main entrance, 4.0 m long, 0.6 m wide, 0.35 m high.",
     ],
     // From the 18:44 run (qwen3:8b):
@@ -238,6 +239,14 @@ describe("planBrief: asking the model one change at a time", () => {
       ], reason: "" }),
       /wants 1.8 m clear between the two blocks, they have 1.20 m/,
       "Entrance planters, each 4.0 m long running west from 1.0 m inside the glass, 0.6 m wide, 0.35 m high. Keep 1.8 m clear between them for the path.",
+    ],
+    // From the benchmark of 2026-11-12: qwen3:8b answered change 8 with the hideTag alone. Nothing
+    // complained, the plan lost its save, and so it could not be run at all.
+    [
+      "a 'check it' change answered with the hideTag alone",
+      JSON.stringify({ type: "steps", steps: [{ op: "hideTag", tag: "1F Reception - Lighting (T128)" }], reason: "" }),
+      /asks for a screenshot, but your answer has no "screenshot" step/,
+      CHECK_IT,
     ],
     ["names that switch language", JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Counter 家具", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 1.05, tag: "T" }], reason: "" }), /English only/],
   ])("rejects %s, with a reason the model can act on", async (_, answer, problem, text) => {
@@ -288,6 +297,71 @@ describe("planBrief: asking the model one change at a time", () => {
     expect(out.outcomes[3]).toMatchObject({ line: 4, type: "failed", tries: 2 });
     expect(out.draft.notDone[0]).toMatchObject({ line: 4, reason: expect.stringMatching(/could not plan it/) });
     expect(out.draft.steps.some((st) => st.line === 5)).toBe(true);
+  });
+
+  it("names every step a change asked for and the answer left out (Windows 2026-11-12, change 8)", async () => {
+    const { summary } = await setup();
+    const answer = JSON.stringify({ type: "steps", steps: [{ op: "hideTag", tag: "1F Reception - Lighting (T128)" }], reason: "" });
+    const problems = checkAnswer(answer, { line: 8, text: CHECK_IT }, [], 1, summary, OPTS).problems.join("\n");
+    expect(problems).toMatch(/no "screenshot" step/);
+    expect(problems).toMatch(/no "save" step/);
+    expect(problems).toMatch(/no "showTag" step/);
+    expect(problems).not.toMatch(/no "hideTag" step/); // it did hide the tag
+  });
+
+  it("does not ask for a showTag because change 1 says 'Show me what is inside it'", async () => {
+    const { summary } = await setup();
+    const answer = JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R5" }], reason: "" });
+    const change = { line: 1, text: 'Take out "Sofa set 4". Move it to replaced (do not delete). Show me what is inside it before doing this.' };
+    expect(checkAnswer(answer, change, [], 1, summary, OPTS).problems).toEqual([]);
+  });
+
+  it("works out the shift itself instead of giving the model a formula (Windows 2026-11-12, change 5)", async () => {
+    const { summary } = await setup();
+    const kerb = (id: string, shift: number) => ({
+      op: "build", id, name: `Kerb ${id}`, height: 0.35, tag: "T",
+      placement: { kind: "beside", anchor: "R12", side: "west", gap: 1, eastWest: 4, northSouth: 0.6, shift },
+    });
+    const answer = JSON.stringify({ type: "steps", steps: [kerb("S1", 0.9), kerb("S2", -0.9)], reason: "" });
+    const change = { line: 5, text: "Entrance planters, each 4.0 m long running west from 1.0 m inside the glass, 0.6 m wide, 0.35 m high. Keep 1.8 m clear between them for the path." };
+    const problems = checkAnswer(answer, change, [], 1, summary, OPTS).problems.join("\n");
+    // 1.8 clear between two 0.6-wide kerbs -> each centre 1.2 from the middle, as in the reference draft.
+    expect(problems).toMatch(/set shift to 1.2 on one and -1.2 on the other/);
+  });
+
+  it("treats a change already planned under an earlier one as done, not NOT DONE (Windows 2026-11-12, change 3)", async () => {
+    const { summary } = await setup();
+    const bare = (line: number) => BRIEF1.steps.filter((st) => st.line === line).map(({ line: _l, ...rest }) => rest);
+    const counterAndTop = JSON.stringify({ type: "steps", steps: [...bare(2), ...bare(3)], reason: "" });
+    const topAgain = JSON.stringify({ type: "steps", steps: bare(3), reason: "" });
+    const llm = fakeModel((line) => (line === 2 ? counterAndTop : line === 3 ? topAgain : null));
+    const out = await planBrief(llm, parseBrief(BRIEF_TEXT), summary, renderSummary(summary), OPTS);
+
+    expect(out.outcomes[2]).toMatchObject({ line: 3, type: "steps", steps: 0 });
+    expect(out.draft.notDone.some((n) => n.line === 3)).toBe(false);
+    // the counter top is in the plan once, under change 2, and the plan still runs
+    expect(out.draft.steps.filter((st) => st.op === "build" && st.placement.kind === "onTop")).toHaveLength(1);
+    expect(resolveDraft(out.draft, summary, OPTS).errors).toEqual([]);
+  });
+
+  it("names the side that faces into the room instead of saying 'check side' (Windows 2026-11-12, change 5)", async () => {
+    const { summary } = await setup();
+    // R12 is the EAST GLASS WALL at the room's east edge: qwen3:8b read the name and used side "east".
+    const kerb = (id: string, shift: number) => ({
+      op: "build", id, name: `Kerb ${id}`, height: 0.35, tag: "T",
+      placement: { kind: "beside", anchor: "R12", side: "east", gap: 1, eastWest: 4, northSouth: 0.6, shift },
+    });
+    const answer = JSON.stringify({ type: "steps", steps: [kerb("S1", 1.2), kerb("S2", -1.2)], reason: "" });
+    const change = { line: 5, text: "Entrance planters, two kerbs inside the main entrance (the gap in EAST GLASS WALL), each 4.0 m long running west, 0.6 m wide, 0.35 m high." };
+    const problems = checkAnswer(answer, change, [], 1, summary, OPTS).problems.join("\n");
+    expect(problems).toMatch(/the inside of R12 faces west, so use side "west"/);
+  });
+
+  it("accepts the reference draft's kerbs, which stand on the inside face", async () => {
+    const { summary } = await setup();
+    const steps = BRIEF1.steps.filter((st) => st.line === 5).map(({ line: _l, ...rest }) => rest);
+    const change = { line: 5, text: "Entrance planters, each 4.0 m long running west from 1.0 m inside the glass, 0.6 m wide, 0.35 m high. Keep 1.8 m clear between them for the path." };
+    expect(checkAnswer(JSON.stringify({ type: "steps", steps, reason: "" }), change, [], 4, summary, OPTS).problems).toEqual([]);
   });
 
   it("sends Ollama schemas it accepts (no prefixItems / items:false, Windows fix 543957a)", () => {

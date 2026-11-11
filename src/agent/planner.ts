@@ -53,6 +53,7 @@ Rules:
 - Only build what the change asks to ADD. Taking something out is only a "replace": never build a new block for it,
   and never place a new block beside something that is being taken out.
 - Only steps THIS change asks for: no extra screenshots, saves, tag steps or replaces.
+  But include EVERY step it does ask for: "hide the tag, take a screenshot, show it again, then save" is four steps.
 - "inside" a wall or the entrance means the side facing into the room.
 - "along" an item = the block's length runs the same way as that item (see "runs north-south / east-west").
 - "X m clear between them" is the empty space between the two blocks, not centre to centre.
@@ -96,6 +97,42 @@ const ON_SOMETHING = /\bon top of\b|\bon the (?!floor\b|ground\b|east\b|west\b|n
 
 const VAGUE_REASON = /coordinat|position|exact|align|camera|view|orientation|finali[sz]|not specified|unknown location/i;
 
+/** What resolve.ts says when a step repeats one from an earlier change. */
+const DUPLICATE_OF_EARLIER = /the same (?:build|replace|save) step appears more than once \(first at line \d+\)/;
+/** The complaint that follows from a repeat: the copy stands exactly where the original does. */
+const OVERLAPS_A_NEW_BLOCK = /overlaps S\d+, another new block/;
+
+/**
+ * Which face of an item at the edge of the room points INTO the room. An item that runs
+ * north-south is entered from its east or west face, and the inside one is whichever is
+ * nearer the middle of the room. Returns null when the item isn't clearly long one way.
+ */
+function insideFace(anchor: RoomSummary["items"][number], summary: RoomSummary): "east" | "west" | "north" | "south" | null {
+  const runs = runsWhichWay(anchor.size);
+  const middle = (b: readonly number[], c: readonly number[], i: number) => (b[i]! + c[i]!) / 2;
+  const room = summary.room.bounds;
+  if (runs === "north-south") return middle(room.min, room.max, 0) < middle(anchor.bounds.min, anchor.bounds.max, 0) ? "west" : "east";
+  if (runs === "east-west") return middle(room.min, room.max, 1) < middle(anchor.bounds.min, anchor.bounds.max, 1) ? "south" : "north";
+  return null;
+}
+
+/**
+ * How far each of a pair slides from the middle to leave `clear` metres between them.
+ * A block placed on the east or west side of an item slides north-south, so its width
+ * across the gap is northSouth; on the north or south side it is eastWest.
+ */
+function shiftHint(answer: ChangeAnswer, clear: number): string {
+  const widths: number[] = [];
+  for (const st of answer.steps) {
+    if (st.op !== "build" || st.placement.kind !== "beside") continue;
+    const p = st.placement;
+    widths.push(p.side === "east" || p.side === "west" ? p.northSouth : p.eastWest);
+  }
+  if (widths.length !== 2) return "shift one of them + and the other -, each by (the clear gap + its own width) / 2";
+  const shift = Math.round(((clear + (widths[0]! + widths[1]!) / 2) / 2) * 1000) / 1000;
+  return `set shift to ${shift} on one and -${shift} on the other, and change nothing else`;
+}
+
 export async function planBrief(
   llm: Llm,
   brief: Brief,
@@ -137,7 +174,17 @@ export async function planBrief(
 
     const seconds = Math.round((Date.now() - started) / 1000);
     let outcome: ChangeOutcome;
-    if (!accepted) {
+    // A change whose only problem is that its steps are already in the plan has not failed: the model
+    // answered it while answering an earlier change. (Windows 2026-11-12: qwen3:8b built the counter
+    // top during change 2, so change 3 repeated it and was reported NOT DONE while being scored right.)
+    // The repeated block also sits exactly on the original, so an overlap complaint comes with it.
+    const alreadyPlanned =
+      !accepted &&
+      problems.some((pr) => DUPLICATE_OF_EARLIER.test(pr)) &&
+      problems.every((pr) => DUPLICATE_OF_EARLIER.test(pr) || OVERLAPS_A_NEW_BLOCK.test(pr));
+    if (alreadyPlanned) {
+      outcome = { line: change.line, type: "steps", steps: 0, tries: tries - 1, problems: [], seconds };
+    } else if (!accepted) {
       notDone.push({ line: change.line, what: short(change.text), reason: `the model could not plan it: ${problems.join("; ")}`.slice(0, 300) });
       outcome = { line: change.line, type: "failed", steps: 0, tries: tries - 1, problems, seconds };
     } else {
@@ -216,7 +263,10 @@ export function checkAnswer(
       const want = Number(clear[1]);
       const got = clearGap(mine[0]!.args.points as number[][], mine[1]!.args.points as number[][]);
       if (Math.abs(got - want) > 0.01) {
-        problems.push(`the change wants ${want} m clear between the two blocks, they have ${got.toFixed(2)} m: shift each one by (clear gap + block width) / 2 from the middle`);
+        // The plan's rule is that the model says WHAT and the code works out HOW FAR, so hand it the
+        // number rather than a formula. (Windows 2026-11-12: given "shift each one by (clear gap +
+        // block width) / 2", qwen3:8b failed twice and change 5 produced no planters at all.)
+        problems.push(`the change wants ${want} m clear between the two blocks, they have ${got.toFixed(2)} m: ${shiftHint(answer, want)}`);
       }
     }
     // Outside the room is almost always a wrong side (Windows: one entrance planter went 1 m EAST of the glass wall,
@@ -224,7 +274,19 @@ export function checkAnswer(
     for (const a of plan.actions) {
       if (a.line !== change.line || !a.builds) continue;
       if (a.warnings.some((w) => w.includes("outside the room"))) {
-        problems.push(`${a.builds} ends up outside the room: check "side" (the inside of a wall faces into the room) and "shift"`);
+        // The code knows which face points into the room, so give the answer rather than a hint.
+        // (Windows 2026-11-12: told to "check side and shift", qwen3:8b kept side "east" for the
+        // EAST GLASS WALL - it reads the item's NAME - and both kerbs landed outside the building.)
+        const step = answer.steps.find((st) => st.op === "build" && st.id === a.builds);
+        const anchor = step?.op === "build" && step.placement.kind === "beside"
+          ? summary.items.find((it) => it.ref === (step.placement as { anchor: string }).anchor)
+          : undefined;
+        const inside = anchor ? insideFace(anchor, summary) : null;
+        problems.push(
+          inside
+            ? `${a.builds} ends up outside the room: the inside of ${anchor!.ref} faces ${inside}, so use side "${inside}"`
+            : `${a.builds} ends up outside the room: check "side" (the inside of a wall faces into the room) and "shift"`,
+        );
       }
       for (const w of a.warnings) {
         const m = w.match(/it overlaps (S\d+) "/);
@@ -296,6 +358,23 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
   }
   if ((has("hideTag") || has("showTag")) && !/\b(hide|show|hidden|visible)\b/i.test(t)) {
     problems.push(`change ${change.line} doesn't ask to hide or show a tag; remove those steps`);
+  }
+
+  // The checks above catch steps the change did NOT ask for. These catch the opposite: steps it
+  // plainly DID ask for and the answer left out. (Windows 2026-11-12: qwen3:8b answered change 8,
+  // "hide the tag, take an iso screenshot, show the lighting tag again, then save a copy", with the
+  // hideTag alone. Nothing complained, and the plan lost its save, so it could not be run.)
+  if (answer.type === "steps") {
+    const asked: [boolean, ChangeStep["op"], string][] = [
+      [/\bscreenshot\b|\bphoto\b|\bpicture\b/i.test(t), "screenshot", "a screenshot"],
+      [/\bsave\b/i.test(t), "save", "a save"],
+      [/\bhide\b/i.test(t), "hideTag", "a tag hidden"],
+      [/\bshow\b[^.;]{0,30}\btag\b|\bshow\b[^.;]{0,20}\bagain\b/i.test(t), "showTag", "a tag shown again"],
+      [/\btake out\b|\bremove\b|\bget rid of\b/i.test(t), "replace", "something taken out"],
+    ];
+    for (const [wanted, op, what] of asked) {
+      if (wanted && !has(op)) problems.push(`change ${change.line} asks for ${what}, but your answer has no "${op}" step`);
+    }
   }
 
   // showTag only makes sense for a tag that is hidden (in the model, or earlier in this plan).
