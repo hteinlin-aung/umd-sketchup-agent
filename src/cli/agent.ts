@@ -12,7 +12,7 @@ import { executePlan, renderReport } from "../agent/execute";
 import { Draft } from "../agent/draft";
 import { LlmError, ollamaLlm } from "../agent/llm";
 import { parseBrief } from "../agent/brief";
-import { planBrief } from "../agent/planner";
+import { briefRules, planBrief } from "../agent/planner";
 import { renderPlan, resolveDraft } from "../agent/resolve";
 import { BridgeClient } from "../bridge/client";
 import { createTransport } from "../bridge/createTransport";
@@ -86,7 +86,7 @@ async function main(): Promise<number> {
 
   // Week 3: check every new block against the real parts of the model; slide it clear where possible.
   console.log("checking new blocks against the real model ...");
-  const checked = await checkAndRepair(client, draft, summary, resolve);
+  const checked = await checkAndRepair(client, draft, summary, resolve, briefRules(brief));
   const plan = checked.plan;
   const checks: string[] = [];
   for (const r of checked.repairs) checks.push(`MOVED ${r.step} (brief line ${r.line}) ${r.moved} m ${r.direction}: ${r.because}`);
@@ -111,7 +111,10 @@ async function main(): Promise<number> {
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(`Run these ${plan.actions.length} actions on ${ping.data.modelTitle}? Type y to run, anything else to stop: `);
+  const moves = checked.repairs.length
+    ? ` NOTE: ${checked.repairs.length} automatic move${checked.repairs.length > 1 ? "s" : ""} changed your design (see GEOMETRY CHECKS).`
+    : "";
+  const answer = await rl.question(`Run these ${plan.actions.length} actions on ${ping.data.modelTitle}?${moves} Type y to run, anything else to stop: `);
   rl.close();
   if (answer.trim().toLowerCase() !== "y") {
     report(null);

@@ -2,7 +2,7 @@ import { runsWhichWay, type RoomSummary } from "../summary/roomSummary";
 import type { Brief, BriefChange } from "./brief";
 import { ChangeAnswer, changeAnswerJsonSchema, type ChangeStep, type Draft, type DraftStep } from "./draft";
 import type { ChatMessage, Llm } from "./llm";
-import { resolveDraft, type ResolveOptions } from "./resolve";
+import { resolveDraft, type Plan, type ResolveOptions } from "./resolve";
 
 /**
  * Step 2c: asks the language model for a plan, ONE brief change at a time.
@@ -435,6 +435,26 @@ function renumber(answer: ChangeAnswer, firstId: number): ChangeAnswer {
     return { ...st, id: map.get(st.id)!, placement };
   });
   return { ...answer, steps };
+}
+
+/**
+ * The brief's measurable rules, checked on a whole plan (used again after an automatic repair moved blocks):
+ * "X m clear between them" for a change that builds two blocks.
+ */
+export function briefRules(brief: Brief): (plan: Plan) => string[] {
+  return (plan) => {
+    const problems: string[] = [];
+    for (const change of brief.changes) {
+      const clear = change.text.match(/(\d+(?:\.\d+)?)\s*m clear between/i);
+      const mine = plan.actions.filter((a) => a.line === change.line && a.builds);
+      if (!clear || mine.length !== 2) continue;
+      const got = clearGap(mine[0]!.args.points as number[][], mine[1]!.args.points as number[][]);
+      if (Math.abs(got - Number(clear[1])) > 0.01) {
+        problems.push(`change ${change.line} wants ${clear[1]} m clear between ${mine[0]!.builds} and ${mine[1]!.builds}, they would have ${got.toFixed(2)} m`);
+      }
+    }
+    return problems;
+  };
 }
 
 /** Clear distance between two rectangles (corner points), along whichever axis separates them; negative = overlap. */

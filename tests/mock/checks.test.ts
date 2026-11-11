@@ -5,6 +5,8 @@ import { executePlan } from "../../src/agent/execute";
 import { resolveDraft } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
+import { parseBrief } from "../../src/agent/brief";
+import { briefRules } from "../../src/agent/planner";
 import { checkAndRepair, findCollisions, verifyRun } from "../../src/geometry/checks";
 import { summarizeRoom } from "../../src/summary/roomSummary";
 
@@ -46,12 +48,40 @@ describe("collision checks against the real parts", () => {
     column(sketchup, room.entityId, 91.4, 101.0, 91.8, 101.4); // inside the counter's footprint
     const { plan, repairs, unresolved } = await checkAndRepair(client, REF, summary, resolve);
     expect(unresolved).toEqual([]);
-    expect(repairs).toEqual([{ step: "S1", line: 2, moved: 0.68, direction: "north", because: 'its box cut "column C7"' }]);
+    expect(repairs).toEqual([{ step: "S1", line: 2, moved: 0.68, direction: "north", because: 'the box cut "column C7"' }]);
     expect(plan.errors).toEqual([]);
     const ys = (id: string) => (plan.actions.find((a) => a.builds === id)!.args.points as number[][]).map((p) => p[1]!);
     expect(Math.min(...ys("S1"))).toBeCloseTo(101.45, 6); // 5 cm clear of the column
     expect(Math.min(...ys("S2"))).toBeCloseTo(101.4, 6); // the top followed (0.05 overhang)
     expect(await findCollisions(client, plan, summary)).toEqual([]);
+  });
+
+  it("moves a PAIR together, so the 1.8 m path between the entrance kerbs is kept (Windows, 2026-11-12)", async () => {
+    const { sketchup, client, summary, room, resolve } = await setup();
+    // Like the real olive armchair: it reaches into the north kerb only.
+    sketchup.addEntity({ type: "Group", name: "olive armchair (3DW Pietra)", tag: "Layer0", parentId: room.entityId, bounds: { min: [97.5, 104.2, 1.489], max: [98.3, 105.0, 2.3] } });
+    const brief = parseBrief(readFileSync("instructions/1F_reception.md", "utf8"));
+    const { plan, repairs } = await checkAndRepair(client, REF, summary, resolve, briefRules(brief));
+    expect(repairs).toHaveLength(1);
+    expect(repairs[0]).toMatchObject({ step: "S4+S5", line: 5, direction: "south" });
+    expect(repairs[0]!.because).toMatch(/^together, to keep their spacing/);
+    expect(plan.errors).toEqual([]);
+    expect(briefRules(brief)(plan)).toEqual([]); // still exactly 1.8 m clear
+  });
+
+  it("stops the plan when an automatic move would break one of the brief's rules", async () => {
+    const { sketchup, client, summary, room, resolve } = await setup();
+    column(sketchup, room.entityId, 91.4, 101.0, 91.8, 101.4);
+    const { plan } = await checkAndRepair(client, REF, summary, resolve, () => ["change 2 wants the counter centred on Terrarium A"]);
+    expect(plan.errors.join()).toMatch(/the automatic move broke the brief: change 2 wants the counter centred.*Nothing was changed/);
+  });
+
+  it("names a bare-number part after the group it belongs to ('1069' tells you nothing)", async () => {
+    const { sketchup, client, summary, room, resolve } = await setup();
+    const chair = sketchup.addEntity({ type: "Group", name: "olive armchair (3DW Pietra)", tag: "Layer0", parentId: room.entityId, bounds: { min: [91.4, 101, 1.489], max: [91.8, 101.4, 2.3] } });
+    sketchup.addEntity({ type: "Group", name: "1069", tag: "Layer0", parentId: chair.entityId, bounds: chair.bounds });
+    const hits = await findCollisions(client, resolve(REF), summary);
+    expect(hits.map((h) => h.with)).toEqual(["olive armchair (3DW Pietra) part"]);
   });
 
   it("reports honestly when sliding up to 2 m can't clear it, and the plan can't run", async () => {

@@ -91,10 +91,22 @@ export async function checkAndRepair(
   draft: Draft,
   summary: RoomSummary,
   resolve: (d: Draft) => Plan,
+  /** The brief's own rules (e.g. "1.8 m clear between them"), re-checked after any automatic move. */
+  briefRules: (plan: Plan) => string[] = () => [],
 ): Promise<CheckResult> {
+  const result = await repairLoop(client, draft, summary, resolve);
+  if (result.repairs.length > 0) {
+    for (const problem of briefRules(result.plan)) {
+      result.plan.errors.push(`the automatic move broke the brief: ${problem}. Nothing was changed; adjust the brief or place it by hand`);
+    }
+  }
+  return result;
+}
+
+async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSummary, resolve: (d: Draft) => Plan): Promise<CheckResult> {
   let current = draft;
   const repairs: Repair[] = [];
-  const movedSoFar = new Map<string, number>();
+  const movedSoFar = new Map<number, number>(); // brief line -> metres moved so far
 
   for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
     const plan = resolve(current);
@@ -103,27 +115,42 @@ export async function checkAndRepair(
 
     let changed = false;
     const steps = current.steps.map((st) => ({ ...st })) as DraftStep[];
+    const builds = steps.filter((s): s is Extract<DraftStep, { op: "build" }> => s.op === "build");
+    const done = new Set<number>(); // brief lines already moved in this attempt
     for (const step of new Set(collisions.map((c) => c.step))) {
-      const st = steps.find((s) => s.op === "build" && s.id === step) as Extract<DraftStep, { op: "build" }> | undefined;
-      if (!st || st.placement.kind !== "beside") continue; // a top moves with its base
-      const action = plan.actions.find((a) => a.builds === step)!;
-      const box = boxOfAction(action.args);
-      const axis = st.placement.side === "east" || st.placement.side === "west" ? 1 : 0; // slide along the wall
-      const hits = collisions.filter((c) => c.step === step);
-      const obstacles = hits.map((h) => h.bounds);
-      const up = Math.max(...obstacles.map((o) => o.max[axis]! - box.min[axis]!)) + CLEAR;
-      const down = Math.max(...obstacles.map((o) => box.max[axis]! - o.min[axis]!)) + CLEAR;
+      const st = builds.find((s) => s.id === step);
+      if (!st || st.placement.kind !== "beside" || done.has(st.line)) continue; // a top moves with its base
+      // Blocks from the SAME brief change move together, so their spacing (a path between two kerbs) is kept.
+      // Windows, 2026-11-12: one kerb moved alone and the 1.8 m clear path became 1.25 m without a word.
+      const set = builds.filter((s) => s.line === st.line && s.placement.kind === "beside");
+      const axisOf = (s: (typeof set)[number]) => (s.placement.kind === "beside" && (s.placement.side === "east" || s.placement.side === "west") ? 1 : 0);
+      const axis = axisOf(st);
+      if (set.some((s) => axisOf(s) !== axis)) continue; // can't slide them together: reported below
+      let up = 0;
+      let down = 0;
+      const hitNames: string[] = [];
+      for (const member of set) {
+        const hits = collisions.filter((c) => c.step === member.id);
+        if (hits.length === 0) continue;
+        const box = boxOfAction(plan.actions.find((a) => a.builds === member.id)!.args);
+        up = Math.max(up, ...hits.map((h) => h.bounds.max[axis]! - box.min[axis]! + CLEAR));
+        down = Math.max(down, ...hits.map((h) => box.max[axis]! - h.bounds.min[axis]! + CLEAR));
+        hitNames.push(...hits.map((h) => `"${h.with}"`));
+      }
       const move = up <= down ? up : -down;
-      const total = (movedSoFar.get(step) ?? 0) + Math.abs(move);
+      const total = (movedSoFar.get(st.line) ?? 0) + Math.abs(move);
       if (total > MAX_MOVE) continue;
-      movedSoFar.set(step, total);
-      st.placement = { ...st.placement, shift: round(st.placement.shift + move) };
+      movedSoFar.set(st.line, total);
+      for (const member of set) {
+        if (member.placement.kind === "beside") member.placement = { ...member.placement, shift: round(member.placement.shift + move) };
+      }
+      done.add(st.line);
       repairs.push({
-        step,
+        step: set.map((m) => m.id).join("+"),
         line: st.line,
         moved: round(Math.abs(move)),
         direction: axis === 1 ? (move > 0 ? "north" : "south") : move > 0 ? "east" : "west",
-        because: `its box cut ${hits.map((h) => `"${h.with}"`).join(", ")}`,
+        because: `${set.length > 1 ? "together, to keep their spacing; " : ""}the box cut ${[...new Set(hitNames)].join(", ")}`,
       });
       changed = true;
     }
@@ -219,6 +246,9 @@ export async function verifyRun(
   return { ok, lines };
 }
 
-/** A readable name: its own, or "<parent> part" for an unnamed piece. */
-const label = (m: Found) => m.name || (/^(group|component)#\d+$/i.test(m.definitionName) ? `${m.path.at(-2) ?? "?"} part` : m.definitionName);
+/** A readable name: its own, or "<parent> part" for an unnamed or bare-number piece ("1069" tells you nothing). */
+const label = (m: Found) => {
+  const own = m.name || m.definitionName;
+  return !own || /^\d+$/.test(own) || /^(group|component)#\d+$/i.test(own) ? `${m.path.at(-2) ?? "?"} part` : own;
+};
 const round = (v: number) => Math.round(v * 1000) / 1000;
