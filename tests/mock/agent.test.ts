@@ -174,10 +174,10 @@ describe("planBrief: asking the model one change at a time", () => {
     expect(out.outcomes[1]).toMatchObject({ line: 2, type: "steps", tries: 2 });
   });
 
-  it.each<[string, string, RegExp]>([
+  it.each<[string, string, RegExp, string?]>([
     ["the same step twice", JSON.stringify({ type: "steps", steps: [{ op: "screenshot" }, { op: "screenshot" }], reason: "" }), /more than once/],
     ["steps with no steps", JSON.stringify({ type: "steps", steps: [], reason: "" }), /no steps/],
-    ["a ref that doesn't exist", JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R40" }], reason: "" }), /R40 is not in the room summary/],
+    ["a ref that doesn't exist", JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R40" }], reason: "" }), /R40 is not in the room summary/, "Take out the old desk."],
     [
       "a top on a block that doesn't exist",
       JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S7", name: "x", placement: { kind: "onTop", of: "S5", overhang: 0 }, height: 0.1, tag: "T" }], reason: "" }),
@@ -185,9 +185,20 @@ describe("planBrief: asking the model one change at a time", () => {
     ],
     ["calling a real change a rule", JSON.stringify({ type: "rule", steps: [], reason: "" }), /not only a rule/],
     ["not JSON", "Sure! Here is the plan:", /not valid JSON/],
-  ])("rejects %s, with a reason the model can act on", async (_, answer, problem) => {
+    // From the Windows run of 2026-11-11:
+    ["a showTag for 'add a counter' (qwen3:4b's false pass)", JSON.stringify({ type: "steps", steps: [{ op: "showTag", tag: "1F Reception - Furniture (AGENT)" }], reason: "" }), /needs a "build" step/],
+    ["a screenshot the change didn't ask for (qwen3:8b, change 1)", JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R5" }, { op: "screenshot" }], reason: "" }), /doesn't ask for a screenshot/, "Take out Sofa set 4. Show me what is inside it before doing this."],
+    ["showing a tag that isn't hidden", JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R5" }, { op: "showTag", tag: "1F Reception - Terrariums (T128)" }], reason: "" }), /not hidden, so showing it does nothing/, "Take out Sofa set 4. Show me what is inside it."],
+    [
+      "a planter outside the building (qwen3:8b, change 5: 1 m EAST of the east glass wall)",
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Planter", placement: { kind: "beside", anchor: "R12", side: "east", gap: 1, along: 0.6, across: 4, shift: -1.2 }, height: 0.35, tag: "T" }], reason: "" }),
+      /S1 ends up outside the room: check "side"/,
+      "Entrance planters. Two kerbs inside the main entrance, 4.0 m long, 0.6 m wide, 0.35 m high.",
+    ],
+    ["names that switch language", JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Counter 家具", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, along: 3, across: 0.7 }, height: 1.05, tag: "T" }], reason: "" }), /English only/],
+  ])("rejects %s, with a reason the model can act on", async (_, answer, problem, text) => {
     const { summary } = await setup();
-    const change = { line: 2, text: "New reception counter. Add a counter ..." };
+    const change = { line: 2, text: text ?? "New reception counter. Add a counter 3.0 m long, 0.7 m deep, 1.05 m high." };
     expect(checkAnswer(answer, change, [], 1, summary, OPTS).problems.join("\n")).toMatch(problem);
   });
 
@@ -235,8 +246,25 @@ describe("resolveDraft: catches a model stuck in a loop", () => {
       loop.push({ op: "hideTag", line: 8, tag: "L" }, { op: "screenshot", line: 8 }, { op: "showTag", line: 8, tag: "L" });
     }
     const errors = resolveDraft(withSteps([...loop, SAVE]), summary, OPTS).errors.join("\n");
-    expect(errors).toMatch(/same screenshot step appears more than once/);
-    expect(errors).toMatch(/repeating itself/);
+    expect(errors).toMatch(/5 screenshots: the plan is repeating itself/);
+    expect(errors).toMatch(/10 tag hide\/show steps/);
+  });
+
+  it("allows a second screenshot later in the plan (Windows: it used to kill the save in change 8)", async () => {
+    const { summary } = await setup();
+    const steps: DraftStep[] = [
+      { op: "replace", line: 1, target: "R5" },
+      { op: "screenshot", line: 1 },
+      ...BRIEF1.steps.filter((st) => st.line === 8),
+    ];
+    expect(resolveDraft(withSteps(steps), summary, OPTS).errors).toEqual([]);
+  });
+
+  it("still refuses building the same thing twice, even with different ids", async () => {
+    const { summary } = await setup();
+    const counter = BRIEF1.steps.find((st) => st.op === "build" && st.id === "S1")!;
+    const errors = resolveDraft(withSteps([counter, { ...counter, id: "S9", line: 4 } as DraftStep, SAVE]), summary, OPTS).errors;
+    expect(errors.join()).toMatch(/same build step appears more than once/);
   });
 });
 

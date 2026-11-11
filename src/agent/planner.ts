@@ -49,12 +49,19 @@ Rules:
 - Only use refs (R1, R2 ...) from the ROOM SUMMARY; pick the item whose name matches the brief's words.
 - Use the brief's sizes exactly, in metres. Use the tag and material the brief's rules give.
 - New build ids: use exactly the ids you are told to use, in order.
-- Never repeat a step.`;
+- Only steps THIS change asks for: no extra screenshots, saves, tag steps or replaces.
+- "inside" a wall or the entrance means the side facing into the room.
+- Write in English only. Never repeat a step.`;
 
 const EXAMPLE = `Example (another room). Change: "2. Add a shelf 2.0 m long, 0.4 m deep, 0.9 m high, 0.5 m south of the
 window wall, centred, in oak." R4 is the window wall; the brief's rules say tag "Furniture (AGENT)" and oak = RGB 180,140,90.
 New build ids: S3. Answer:
-{"type":"steps","steps":[{"op":"build","id":"S3","name":"Shelf - oak","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.5,"along":2.0,"across":0.4,"shift":0},"height":0.9,"base":0,"tag":"Furniture (AGENT)","material":{"name":"Oak","rgb":[180,140,90]}}],"reason":""}`;
+{"type":"steps","steps":[{"op":"build","id":"S3","name":"Shelf - oak","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.5,"along":2.0,"across":0.4,"shift":0},"height":0.9,"base":0,"tag":"Furniture (AGENT)","material":{"name":"Oak","rgb":[180,140,90]}}],"reason":""}
+
+Example of a PAIR. Change: "3. Two planters 0.5 m wide, 3.0 m long, 0.4 m high, 2.0 m inside the door wall (R6, runs north-south),
+one each side of a 1.2 m path." Both go on the SAME side of R6 (the inside, west); "shift" moves them apart along the wall:
+each centre is 1.2/2 + 0.5/2 = 0.85 m from the middle, so shift +0.85 and -0.85. New build ids: S4, S5. Answer:
+{"type":"steps","steps":[{"op":"build","id":"S4","name":"Planter north","placement":{"kind":"beside","anchor":"R6","side":"west","gap":2.0,"along":0.5,"across":3.0,"shift":0.85},"height":0.4,"base":0,"tag":"Furniture (AGENT)"},{"op":"build","id":"S5","name":"Planter south","placement":{"kind":"beside","anchor":"R6","side":"west","gap":2.0,"along":0.5,"across":3.0,"shift":-0.85},"height":0.4,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}`;
 
 export type ChangeOutcome = {
   line: number;
@@ -170,6 +177,8 @@ export function checkAnswer(
     problems.push(`change ${change.line} asks for something to be done, so it is not only a rule; give its steps`);
   }
 
+  problems.push(...stepsFitTheChange(answer, change, done, summary));
+
   const keys = answer.steps.map((s) => JSON.stringify(s));
   if (new Set(keys).size < keys.length) problems.push("the same step appears more than once");
 
@@ -180,8 +189,54 @@ export function checkAnswer(
     const hasSave = trial.some((s) => s.op === "save");
     const plan = resolveDraft({ steps: hasSave ? trial : [...trial, { op: "save", line: change.line, fileName: "check" }], notDone: [] }, summary, opts);
     for (const e of plan.errors) if (e.startsWith(`line ${change.line}:`) || e.startsWith("action ")) problems.push(e.replace(/^line \d+: /, ""));
+    // Outside the room is almost always a wrong side (Windows: one entrance planter went 1 m EAST of the glass wall,
+    // i.e. outside the building). Overlaps with existing items stay warnings: those are your design decision.
+    for (const a of plan.actions) {
+      if (a.line !== change.line || !a.builds) continue;
+      if (a.warnings.some((w) => w.includes("outside the room"))) {
+        problems.push(`${a.builds} ends up outside the room: check "side" (the inside of a wall faces into the room) and "shift"`);
+      }
+    }
   }
   return { answer, problems };
+}
+
+/**
+ * Does each step belong to THIS change? Small models drift: on Windows qwen3:4b answered "add a counter"
+ * with a showTag and was counted as planned; qwen3:8b added a screenshot and a showTag to "take out Sofa set 4".
+ * Simple word checks on the change's own text catch most of it, and the model is told why.
+ */
+function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: DraftStep[], summary: RoomSummary): string[] {
+  const t = change.text;
+  const problems: string[] = [];
+  const has = (op: ChangeStep["op"]) => answer.steps.some((st) => st.op === op);
+
+  if (/\d(\.\d+)?\s*m\b/.test(t) && answer.type === "steps" && !has("build")) {
+    problems.push(`change ${change.line} gives sizes in metres for something new, so it needs a "build" step`);
+  }
+  if (has("screenshot") && !/screenshot|image|picture|photo|capture/i.test(t)) {
+    problems.push(`change ${change.line} doesn't ask for a screenshot; remove it (the plan already shows what replaced items contain)`);
+  }
+  if (has("save") && !/\bsave\b/i.test(t)) problems.push(`change ${change.line} doesn't ask to save; remove the save step`);
+  if (has("replace") && !/take out|remov|replac|get rid of/i.test(t)) {
+    problems.push(`change ${change.line} doesn't ask to take anything out; remove the replace step`);
+  }
+  if ((has("hideTag") || has("showTag")) && !/\b(hide|show|hidden|visible)\b/i.test(t)) {
+    problems.push(`change ${change.line} doesn't ask to hide or show a tag; remove those steps`);
+  }
+
+  // showTag only makes sense for a tag that is hidden (in the model, or earlier in this plan).
+  const hidden = new Set(summary.tags.filter((tg) => !tg.visible).map((tg) => tg.name));
+  for (const st of [...done, ...answer.steps]) {
+    if (st.op === "hideTag") hidden.add(st.tag);
+    else if (st.op === "showTag") {
+      if (!hidden.has(st.tag) && answer.steps.includes(st as ChangeStep)) problems.push(`"${st.tag}" is not hidden, so showing it does nothing; remove that step`);
+      hidden.delete(st.tag);
+    }
+  }
+
+  if (/[\u3000-\u9fff]/.test(JSON.stringify(answer))) problems.push("write every name and reason in English only");
+  return problems;
 }
 
 /**

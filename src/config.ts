@@ -9,7 +9,7 @@ const ConfigSchema = z.object({
   UMD_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
   UMD_POLL_MS: z.coerce.number().int().min(50).max(5_000).default(250),
   OLLAMA_URL: z.url().default("http://127.0.0.1:11434"),
-  OLLAMA_MODEL: z.string().min(1).default("qwen3:4b-instruct"),
+  OLLAMA_MODEL: z.string().min(1).default("qwen3:8b"),
   UMD_ALLOW_PAID: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
 });
 

@@ -58,18 +58,22 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
     return it;
   };
 
-  // A small model can get stuck repeating itself; the same step twice is never intended.
+  // A small model can get stuck repeating itself. Building or replacing the same thing twice is never
+  // intended. Screenshots and tag hide/show may repeat legitimately (Windows, 2026-11-11: a stray screenshot
+  // in change 1 made the correct screenshot in change 8 "a duplicate", and the plan lost its save),
+  // so for those only a runaway count is an error.
   const seen = new Map<string, number>();
   for (const step of draft.steps) {
+    if (step.op !== "build" && step.op !== "replace" && step.op !== "save") continue;
     const { line: _line, ...rest } = step;
-    const key = JSON.stringify(rest);
-    if (step.op !== "hideTag" && step.op !== "showTag" && seen.has(key)) {
-      errors.push(`line ${step.line}: the same ${step.op} step appears more than once (first at line ${seen.get(key)})`);
-    }
-    if (!seen.has(key)) seen.set(key, step.line);
+    const key = JSON.stringify(step.op === "build" ? { ...rest, id: "" } : rest);
+    if (seen.has(key)) errors.push(`line ${step.line}: the same ${step.op} step appears more than once (first at line ${seen.get(key)})`);
+    else seen.set(key, step.line);
   }
   const tagFlips = draft.steps.filter((st) => st.op === "hideTag" || st.op === "showTag").length;
   if (tagFlips > 6) errors.push(`${tagFlips} tag hide/show steps: the plan is repeating itself`);
+  const shots = draft.steps.filter((st) => st.op === "screenshot").length;
+  if (shots > 3) errors.push(`${shots} screenshots: the plan is repeating itself`);
 
   for (const step of draft.steps) {
     if (savedAt !== null && step.op !== "save") {
