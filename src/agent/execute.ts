@@ -15,9 +15,16 @@ export type RunResult = {
   stoppedAt: number | null; // the action that failed, or null if all ran
   savedPath: string | null;
   imagePath: string | null;
+  built: Record<string, number>; // step id -> entityId of the new block
 };
 
-export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r: ActionResult) => void = () => {}): Promise<RunResult> {
+export async function executePlan(
+  client: BridgeClient,
+  plan: Plan,
+  onResult: (r: ActionResult) => void = () => {},
+  /** Called just before the save with the new blocks; return false to stop WITHOUT saving (e.g. a failed read-back). */
+  beforeSave: (built: Record<string, number>) => Promise<boolean> = async () => true,
+): Promise<RunResult> {
   if (plan.errors.length) throw new Error("this plan has errors and must not run");
   const built = new Map<string, number>(); // step id -> entityId
   let jobGroupId: number | null = null;
@@ -33,12 +40,18 @@ export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r
         const r = { n: a.n, ok: false, message: `${a.targetsStep} was not built`, durationMs: 0 };
         results.push(r);
         onResult(r);
-        return { results, stoppedAt: a.n, savedPath, imagePath };
+        return { results, stoppedAt: a.n, savedPath, imagePath, built: Object.fromEntries(built) };
       }
       args = { ...args, target: { entityId: id } };
     }
     if (a.zoomToJobGroup && jobGroupId !== null) args = { ...args, zoomTo: { entityId: jobGroupId } };
 
+    if (a.tool === "saveCopy" && !(await beforeSave(Object.fromEntries(built)))) {
+      const r = { n: a.n, ok: false, message: "not saved: the read-back check failed (see the report)", durationMs: 0 };
+      results.push(r);
+      onResult(r);
+      return { results, stoppedAt: a.n, savedPath, imagePath, built: Object.fromEntries(built) };
+    }
     const started = Date.now();
     const res = await client.call(a.tool as ToolName, args as never);
     const durationMs = Date.now() - started;
@@ -46,7 +59,7 @@ export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r
       const r = { n: a.n, ok: false, message: `${res.error.code}: ${res.error.message}`, durationMs };
       results.push(r);
       onResult(r);
-      return { results, stoppedAt: a.n, savedPath, imagePath };
+      return { results, stoppedAt: a.n, savedPath, imagePath, built: Object.fromEntries(built) };
     }
 
     const data = res.data as Record<string, unknown>;
@@ -72,11 +85,11 @@ export async function executePlan(client: BridgeClient, plan: Plan, onResult: (r
     results.push(r);
     onResult(r);
   }
-  return { results, stoppedAt: null, savedPath, imagePath };
+  return { results, stoppedAt: null, savedPath, imagePath, built: Object.fromEntries(built) };
 }
 
 /** The report saved next to the plan: what was asked, what was approved, what happened. */
-export function renderReport(opts: { brief: string; summaryText: string; plan: Plan; run: RunResult | null; model: string }): string {
+export function renderReport(opts: { brief: string; summaryText: string; plan: Plan; run: RunResult | null; model: string; checks?: string[] }): string {
   const { plan, run } = opts;
   const out = [`# Agent run ${plan.runId}`, "", `- model file: ${plan.modelPath}`, `- language model: ${opts.model}`];
   if (!run) out.push("- result: **not run** (plan only)");
@@ -85,6 +98,7 @@ export function renderReport(opts: { brief: string; summaryText: string; plan: P
   if (run?.savedPath) out.push(`- saved copy: ${run.savedPath}`);
   if (run?.imagePath) out.push(`- screenshot: ${run.imagePath}`);
   out.push("", "## Plan (as approved)", "", "```", renderPlan(plan), "```");
+  if (opts.checks?.length) out.push("", "## Geometry checks", "", ...opts.checks.map((c) => `- ${c}`));
   if (run) {
     out.push("", "## What happened", "", "| # | ok | time | result |", "|---|---|---|---|");
     for (const r of run.results) out.push(`| ${r.n} | ${r.ok ? "yes" : "**NO**"} | ${r.durationMs} ms | ${r.message.replace(/\|/g, "/").replace(/\n/g, " ")} |`);

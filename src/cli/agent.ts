@@ -19,6 +19,7 @@ import { createTransport } from "../bridge/createTransport";
 import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
 import { smokeRunId } from "../smoke/runSmoke";
+import { checkAndRepair, verifyRun } from "../geometry/checks";
 import { findRoom, renderSummary, summarizeRoom } from "../summary/roomSummary";
 
 function flag(args: string[], name: string): string | undefined {
@@ -83,12 +84,20 @@ async function main(): Promise<number> {
   }
   writeFileSync(`${dir}/draft.json`, JSON.stringify(draft, null, 2));
 
-  const plan = resolve(draft);
+  // Week 3: check every new block against the real parts of the model; slide it clear where possible.
+  console.log("checking new blocks against the real model ...");
+  const checked = await checkAndRepair(client, draft, summary, resolve);
+  const plan = checked.plan;
+  const checks: string[] = [];
+  for (const r of checked.repairs) checks.push(`MOVED ${r.step} (brief line ${r.line}) ${r.moved} m ${r.direction}: ${r.because}`);
+  for (const c of checked.unresolved) checks.push(`NOT FIXED ${c.step}: collides with "${c.with}" (${c.path.join(" > ")})`);
+  if (checks.length === 0) checks.push("no new block cuts into any real part of the model");
+  if (checked.repairs.length) writeFileSync(`${dir}/draft.repaired.json`, JSON.stringify(checked.draft, null, 2));
   writeFileSync(`${dir}/plan.json`, JSON.stringify(plan, null, 2));
-  console.log(`\n${renderPlan(plan)}\n`);
+  console.log(`\n${renderPlan(plan)}\n\nGEOMETRY CHECKS:\n${checks.map((c) => `  ${c}`).join("\n")}\n`);
 
   const report = (run: Parameters<typeof renderReport>[0]["run"]) =>
-    writeFileSync(`${dir}/report.md`, renderReport({ brief: brief.text, summaryText, plan, run, model: modelName }));
+    writeFileSync(`${dir}/report.md`, renderReport({ brief: brief.text, summaryText, plan, run, model: modelName, checks }));
 
   if (plan.errors.length) {
     report(null);
@@ -110,8 +119,18 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const run = await executePlan(client, plan, (r) =>
-    console.log(`${r.ok ? "  ok " : "  FAILED"} [${r.n}] ${r.message} (${r.durationMs} ms)`),
+  const run = await executePlan(
+    client,
+    plan,
+    (r) => console.log(`${r.ok ? "  ok " : "  FAILED"} [${r.n}] ${r.message} (${r.durationMs} ms)`),
+    async (built) => {
+      // Read everything back before saving: new blocks in place, nothing else in the room changed.
+      const after = await summarizeRoom(client, { persistentId: room.persistentId });
+      const v = await verifyRun(client, plan, summary, after, built);
+      checks.push(...v.lines.map((l) => `read-back: ${l}`));
+      console.log(`read-back before saving:\n${v.lines.map((l) => `  ${l}`).join("\n")}`);
+      return v.ok;
+    },
   );
   report(run);
   console.log(

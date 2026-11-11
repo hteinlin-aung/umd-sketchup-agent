@@ -272,6 +272,31 @@ describe("planBrief: asking the model one change at a time", () => {
     expect(out.problems).toEqual([]);
   });
 
+  it("catches the counter turned 90° even when it is built under change 3 (Windows bench runs 2-3, 2026-11-12)", async () => {
+    const { summary } = await setup();
+    const brief = parseBrief(BRIEF_TEXT);
+    const rotated = JSON.stringify({
+      type: "steps",
+      steps: [
+        { op: "build", id: "S1", name: "Reception counter", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 3, northSouth: 0.7 }, height: 1.05, tag: "T" },
+        { op: "build", id: "S2", name: "Counter top", placement: { kind: "onTop", of: "S1", overhang: 0.05 }, height: 0.04, tag: "T" },
+      ],
+      reason: "",
+    });
+    const change3 = brief.changes.find((c) => c.line === 3)!;
+    const { problems } = checkAnswer(rotated, change3, [], 1, summary, OPTS, brief);
+    expect(problems.join()).toMatch(/S1 looks turned 90°: the brief says "3\.0 m long \(north-south.*so set northSouth 3 and eastWest 0\.7/);
+  });
+
+  it("does not call a block 'turned' when no phrase in the brief matches it", async () => {
+    const { summary } = await setup();
+    const brief = parseBrief(BRIEF_TEXT);
+    const { line: _l, ...bench } = BRIEF1.steps.find((st) => st.op === "build" && st.id === "S3")!;
+    const change4 = brief.changes.find((c) => c.line === 4)!;
+    const { problems } = checkAnswer(JSON.stringify({ type: "steps", steps: [{ ...bench, id: "S1" }], reason: "" }), change4, [], 1, summary, OPTS, brief);
+    expect(problems).toEqual([]);
+  });
+
   it("renumbers the model's build ids and keeps its onTop links pointing at the right block", async () => {
     const { summary } = await setup();
     const answer = JSON.stringify({

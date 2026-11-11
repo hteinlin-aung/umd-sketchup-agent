@@ -81,7 +81,8 @@ export function seedReceptionScene(m: MockSketchUp): void {
 
   const ne = group("NE relaxation lounge (T131) - restyle + oak/moss feature wall + planting", room, b(96.44, 104.262, FLOOR, 102.298, 109.079, TOP), FURN);
   component("3DW Mercy S. curved sofa", ne, b(97, 105, FLOOR, 98.7, 108, 2.089), "Layer0", "curved boucle sofa (3DW Mercy S.)");
-  parts(ne, ["round rug 3.2 m", "walnut backing"]);
+  group("round rug 3.2 m", ne, b(96.2, 105, FLOOR, 99.4, 108.2, FLOOR + 0.01));
+  group("walnut backing", ne, b(102.2, 104.5, FLOOR, 102.298, 108.8, 4.5));
 
   // The main entrance is the gap between the two glass panels (assumed in the middle).
   const glass = group("EAST GLASS WALL (T132) - floor-to-ceiling low-iron glass, bronze frames, either side of main entrance", room, b(101.232, 98.45, FLOOR, 101.332, 108.1, 4.98), GLASS);

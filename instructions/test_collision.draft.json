@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {
+      "op": "build", "line": 1, "id": "S1", "name": "TEST plinth placed over Sofa set 4 on purpose",
+      "placement": { "kind": "beside", "anchor": "R3", "side": "north", "gap": 11.4, "eastWest": 0.6, "northSouth": 0.6, "shift": 0.5 },
+      "height": 0.3, "base": 0, "tag": "AGENT TEST - collision"
+    },
+    { "op": "save", "line": 2, "fileName": "UMD_DEV_collision_test.skp" }
+  ],
+  "notDone": []
+}

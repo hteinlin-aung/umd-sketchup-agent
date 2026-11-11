@@ -160,7 +160,7 @@ export async function planBrief(
     for (tries = 1; tries <= 2; tries++) {
       const text = await llm(messages, schema);
       answers.push({ line: change.line, text });
-      const checked = checkAnswer(text, change, steps, firstId, summary, opts);
+      const checked = checkAnswer(text, change, steps, firstId, summary, opts, brief);
       problems = checked.problems;
       if (problems.length === 0) {
         accepted = checked.answer;
@@ -221,6 +221,7 @@ export function checkAnswer(
   firstId: number,
   summary: RoomSummary,
   opts: ResolveOptions,
+  brief?: Brief, // the whole brief, so checks can follow a block that moved to another change
 ): { answer: ChangeAnswer | null; problems: string[] } {
   let json: unknown;
   try {
@@ -244,7 +245,7 @@ export function checkAnswer(
     problems.push(`change ${change.line} asks for something to be done, so it is not only a rule; give its steps`);
   }
 
-  problems.push(...stepsFitTheChange(answer, change, done, summary));
+  problems.push(...stepsFitTheChange(answer, change, done, summary, brief));
 
   const keys = answer.steps.map((s) => JSON.stringify(s));
   if (new Set(keys).size < keys.length) problems.push("the same step appears more than once");
@@ -302,7 +303,17 @@ export function checkAnswer(
  * with a showTag and was counted as planned; qwen3:8b added a screenshot and a showTag to "take out Sofa set 4".
  * Simple word checks on the change's own text catch most of it, and the model is told why.
  */
-function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: DraftStep[], summary: RoomSummary): string[] {
+type DirectionPhrase = { text: string; value: number; field: "eastWest" | "northSouth" };
+
+function directionPhrases(text: string): DirectionPhrase[] {
+  return [...text.matchAll(/(\d+(?:\.\d+)?)\s*m long\b[^.;]{0,25}?\b(east-west|north-south|west|east|north|south)\b/gi)].map((m) => ({
+    text: m[0],
+    value: Number(m[1]),
+    field: /east|west/i.test(m[2]!) && !/north-south/i.test(m[2]!) ? "eastWest" : "northSouth",
+  }));
+}
+
+function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: DraftStep[], summary: RoomSummary, brief?: Brief): string[] {
   const t = change.text;
   const problems: string[] = [];
   const has = (op: ChangeStep["op"]) => answer.steps.some((st) => st.op === op);
@@ -340,12 +351,28 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
   }
 
   // "4.0 m long running west" / "3.0 m long (north-south)": check the size went to the right direction.
-  for (const m of t.matchAll(/(\d+(?:\.\d+)?)\s*m long\b[^.;]{0,25}?\b(east-west|north-south|west|east|north|south)\b/gi)) {
-    const value = Number(m[1]);
-    const field = /east|west/i.test(m[2]!) && !/north-south/i.test(m[2]!) ? "eastWest" : "northSouth";
+  const own = directionPhrases(t);
+  for (const ph of own) {
     for (const st of answer.steps) {
-      if (st.op === "build" && st.placement.kind === "beside" && Math.abs(st.placement[field] - value) > 0.001) {
-        problems.push(`the brief says "${m[0]}", so ${st.id} needs ${field} ${value} (it has ${st.placement[field]})`);
+      if (st.op === "build" && st.placement.kind === "beside" && Math.abs(st.placement[ph.field] - ph.value) > 0.001) {
+        problems.push(`the brief says "${ph.text}", so ${st.id} needs ${ph.field} ${ph.value} (it has ${st.placement[ph.field]})`);
+      }
+    }
+  }
+  // The check follows the BLOCK, not only the change text: when work moves to a later change (the counter,
+  // asked for in change 2, built while answering change 3), that change's text has no direction phrase.
+  // Then any phrase in the brief applies to a block that has its value in the OTHER direction, i.e. is
+  // turned 90° (Windows, 2026-11-12: runs 2 and 3 built the counter eastWest 3 / northSouth 0.7).
+  if (own.length === 0 && brief) {
+    const others = brief.changes.filter((c) => c.line !== change.line).flatMap((c) => directionPhrases(c.text));
+    for (const st of answer.steps) {
+      if (st.op !== "build" || st.placement.kind !== "beside") continue;
+      const p = st.placement;
+      for (const ph of others) {
+        const otherField = ph.field === "eastWest" ? "northSouth" : "eastWest";
+        if (Math.abs(p[otherField] - ph.value) < 0.001 && Math.abs(p[ph.field] - ph.value) > 0.001) {
+          problems.push(`${st.id} looks turned 90°: the brief says "${ph.text}", so set ${ph.field} ${ph.value} and ${otherField} ${p[ph.field]}`);
+        }
       }
     }
   }
