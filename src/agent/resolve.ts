@@ -5,7 +5,7 @@ import type { Draft, DraftStep, Placement } from "./draft";
 /**
  * Step 2c: turns the model's draft into exact, checked tool calls.
  *
- * All arithmetic happens here, in code: "1.2 m east of R1, 3.0 along, 0.7 across"
+ * All arithmetic happens here, in code: "1.2 m east of R1, 0.7 east-west, 3.0 north-south"
  * becomes a footprint in world metres. Every resulting call is checked with the tool's
  * own Zod schema, and every new shape is compared with the boxes of the existing items.
  * Problems that make the plan impossible are `errors`; things you should look at are `warnings`.
@@ -247,16 +247,16 @@ function place(
   let rect: Rect;
   switch (p.side) {
     case "east":
-      rect = { x0: a.max[0] + p.gap, x1: a.max[0] + p.gap + p.across, y0: cy - p.along / 2, y1: cy + p.along / 2 };
+      rect = { x0: a.max[0] + p.gap, x1: a.max[0] + p.gap + p.eastWest, y0: cy - p.northSouth / 2, y1: cy + p.northSouth / 2 };
       break;
     case "west":
-      rect = { x0: a.min[0] - p.gap - p.across, x1: a.min[0] - p.gap, y0: cy - p.along / 2, y1: cy + p.along / 2 };
+      rect = { x0: a.min[0] - p.gap - p.eastWest, x1: a.min[0] - p.gap, y0: cy - p.northSouth / 2, y1: cy + p.northSouth / 2 };
       break;
     case "north":
-      rect = { y0: a.max[1] + p.gap, y1: a.max[1] + p.gap + p.across, x0: cx - p.along / 2, x1: cx + p.along / 2 };
+      rect = { y0: a.max[1] + p.gap, y1: a.max[1] + p.gap + p.northSouth, x0: cx - p.eastWest / 2, x1: cx + p.eastWest / 2 };
       break;
     case "south":
-      rect = { y0: a.min[1] - p.gap - p.across, y1: a.min[1] - p.gap, x0: cx - p.along / 2, x1: cx + p.along / 2 };
+      rect = { y0: a.min[1] - p.gap - p.northSouth, y1: a.min[1] - p.gap, x0: cx - p.eastWest / 2, x1: cx + p.eastWest / 2 };
       break;
   }
   const shift = p.shift ? `, shifted ${fmt(Math.abs(p.shift))} m ${p.shift > 0 ? (p.side === "north" || p.side === "south" ? "east" : "north") : p.side === "north" || p.side === "south" ? "west" : "south"}` : "";

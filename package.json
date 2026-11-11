@@ -19,7 +19,8 @@
     "tool": "tsx src/cli/tool.ts",
     "levels": "tsx src/cli/levels.ts",
     "summary": "tsx src/cli/summary.ts",
-    "agent": "tsx src/cli/agent.ts"
+    "agent": "tsx src/cli/agent.ts",
+    "bench": "tsx src/cli/bench.ts"
   },
   "dependencies": {
     "zod": "4.6.7"

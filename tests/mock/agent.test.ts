@@ -191,15 +191,60 @@ describe("planBrief: asking the model one change at a time", () => {
     ["showing a tag that isn't hidden", JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R5" }, { op: "showTag", tag: "1F Reception - Terrariums (T128)" }], reason: "" }), /not hidden, so showing it does nothing/, "Take out Sofa set 4. Show me what is inside it."],
     [
       "a planter outside the building (qwen3:8b, change 5: 1 m EAST of the east glass wall)",
-      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Planter", placement: { kind: "beside", anchor: "R12", side: "east", gap: 1, along: 0.6, across: 4, shift: -1.2 }, height: 0.35, tag: "T" }], reason: "" }),
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Planter", placement: { kind: "beside", anchor: "R12", side: "east", gap: 1, eastWest: 4, northSouth: 0.6, shift: -1.2 }, height: 0.35, tag: "T" }], reason: "" }),
       /S1 ends up outside the room: check "side"/,
       "Entrance planters. Two kerbs inside the main entrance, 4.0 m long, 0.6 m wide, 0.35 m high.",
     ],
-    ["names that switch language", JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Counter 家具", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, along: 3, across: 0.7 }, height: 1.05, tag: "T" }], reason: "" }), /English only/],
+    // From the 18:44 run (qwen3:8b):
+    [
+      "a new block in a change that only takes something out",
+      JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R5" }, { op: "build", id: "S1", name: "Sofa set 4 - reception lounge", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 0.851, tag: "T" }], reason: "" }),
+      /doesn't ask to add anything new/,
+      "Take out \"Sofa set 4\". Move it to replaced (do not delete). Show me what is inside it before doing this.",
+    ],
+    [
+      "a block placed beside the item being taken out",
+      JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R5" }, { op: "build", id: "S1", name: "x", placement: { kind: "beside", anchor: "R5", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 1, tag: "T" }], reason: "" }),
+      /beside R5, which this plan takes out/,
+      "Take out Sofa set 4 and add a counter 3.0 m long.",
+    ],
+    [
+      "the two planters' sizes swapped (4 m long running west became north-south)",
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Planter north", placement: { kind: "beside", anchor: "R12", side: "west", gap: 1, eastWest: 0.6, northSouth: 4 , shift: 0.9 }, height: 0.35, tag: "T" }], reason: "" }),
+      /needs eastWest 4 \(it has 0.6\)/,
+      "Entrance planters. Two kerbs inside the main entrance, each 4.0 m long running west from 1.0 m inside the glass, 0.6 m wide, 0.35 m high.",
+    ],
+    [
+      "two new blocks that overlap each other",
+      JSON.stringify({ type: "steps", steps: [
+        { op: "build", id: "S1", name: "Planter north", placement: { kind: "beside", anchor: "R12", side: "west", gap: 1, eastWest: 4, northSouth: 0.6, shift: 0.2 }, height: 0.35, tag: "T" },
+        { op: "build", id: "S2", name: "Planter south", placement: { kind: "beside", anchor: "R12", side: "west", gap: 1, eastWest: 4, northSouth: 0.6, shift: -0.2 }, height: 0.35, tag: "T" },
+      ], reason: "" }),
+      /S2 overlaps S1, another new block/,
+      "Two kerbs inside the main entrance, 0.6 m wide, 0.35 m high, one each side of the path.",
+    ],
+    ["names that switch language", JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Counter 家具", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 1.05, tag: "T" }], reason: "" }), /English only/],
   ])("rejects %s, with a reason the model can act on", async (_, answer, problem, text) => {
     const { summary } = await setup();
     const change = { line: 2, text: text ?? "New reception counter. Add a counter 3.0 m long, 0.7 m deep, 1.05 m high." };
     expect(checkAnswer(answer, change, [], 1, summary, OPTS).problems.join("\n")).toMatch(problem);
+  });
+
+  it("asks for onTop when the change puts something ON an earlier block (the 18:44 counter-top regression)", async () => {
+    const { summary } = await setup();
+    const counter = BRIEF1.steps.find((st) => st.op === "build" && st.id === "S1")!;
+    const answer = JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S2", name: "top", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 0.04, tag: "T" }], reason: "" });
+    const change = { line: 3, text: "Counter top. A thin travertine top on the counter: same footprint plus 0.05 m overhang." };
+    expect(checkAnswer(answer, change, [counter], 2, summary, OPTS).problems.join()).toMatch(/use "onTop"/);
+  });
+
+  it("does not mistake 'on the east side' or 'on the floor' for 'on top of'", async () => {
+    const { summary } = await setup();
+    const counter = BRIEF1.steps.find((st) => st.op === "build" && st.id === "S1")!;
+    const { line: _l, ...bench } = BRIEF1.steps.find((st) => st.op === "build" && st.id === "S3")!;
+    const change = { line: 4, text: "Forest bench on the east side of Terrarium E, standing on the floor, 6.0 m long, 0.5 m deep, 0.45 m high." };
+    const out = checkAnswer(JSON.stringify({ type: "steps", steps: [{ ...bench, id: "S2" }], reason: "" }), change, [counter], 2, summary, OPTS);
+    expect(out.problems).toEqual([]);
   });
 
   it("renumbers the model's build ids and keeps its onTop links pointing at the right block", async () => {
@@ -207,7 +252,7 @@ describe("planBrief: asking the model one change at a time", () => {
     const answer = JSON.stringify({
       type: "steps",
       steps: [
-        { op: "build", id: "S9", name: "counter", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, along: 3, across: 0.7 }, height: 1.05, tag: "T" },
+        { op: "build", id: "S9", name: "counter", placement: { kind: "beside", anchor: "R1", side: "east", gap: 1.2, eastWest: 0.7, northSouth: 3 }, height: 1.05, tag: "T" },
         { op: "build", id: "S4", name: "top", placement: { kind: "onTop", of: "S9", overhang: 0.05 }, height: 0.04, tag: "T" },
       ],
       reason: "",

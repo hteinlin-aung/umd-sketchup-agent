@@ -24,8 +24,10 @@ export const Placement = z.discriminatedUnion("kind", [
     anchor: Ref, // the existing item to measure from
     side: Side, // which side of the anchor's box
     gap: Metres(0, 20), // clear distance from that side of the anchor's box
-    along: Metres(0.05, 30), // length running ALONG that side
-    across: Metres(0.05, 30), // depth going AWAY from the anchor
+    // Size in compass directions, like the brief says it ("4.0 m long running west" = eastWest 4.0).
+    // (Was "along"/"across" the side: qwen3:8b swapped those for the entrance planters, 2026-11-11.)
+    eastWest: Metres(0.05, 30), // size from west to east (x)
+    northSouth: Metres(0.05, 30), // size from south to north (y)
     shift: Metres(-30, 30).default(0), // slide along the side from the anchor's centre (+ = north or east)
   }),
   z.strictObject({

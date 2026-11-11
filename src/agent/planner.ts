@@ -33,14 +33,16 @@ Answer: {"type": "steps" | "rule" | "notPossible", "steps": [...], "reason": "..
 Operations:
 - {"op":"replace","target":"R5"}  hide an existing item (moved to a hidden "replaced" tag, never deleted)
 - {"op":"build","id":"S1","name":"...","placement":{...},"height":H,"base":0,"tag":"...","material":{"name":"...","rgb":[r,g,b]}}
-    a new solid block. height in metres. base = how high its bottom is above the floor (0 = on the floor).
-    placement "beside" = next to an existing item:
-      {"kind":"beside","anchor":"R1","side":"east","gap":1.2,"along":3.0,"across":0.7,"shift":0}
-      side: which side of that item (east, west, north, south). gap: clear distance from that side.
-      along: length running ALONG that side. across: depth going AWAY from the item.
-      shift: slide along the side from the item's centre (+ = north/east, - = south/west). 0 = centred.
-    placement "onTop" = on an earlier block:  {"kind":"onTop","of":"S1","overhang":0.05}
-      height is then the thickness.
+    a NEW solid block. height in metres. base = how high its bottom is above the floor (0 = on the floor).
+    placement "beside" = standing next to an existing item:
+      {"kind":"beside","anchor":"R1","side":"east","gap":1.2,"eastWest":0.7,"northSouth":3.0,"shift":0}
+      side: which side of that item it stands on (east, west, north, south).
+      gap: clear distance from that side of the item.
+      eastWest: the block's size from west to east. northSouth: its size from south to north.
+        "4 m long running west" or "running east" -> eastWest 4. "3 m long (north-south)" -> northSouth 3.
+      shift: slide it along that side, measured from the item's centre (+ = north/east, - = south/west). 0 = centred.
+    placement "onTop" = sitting ON an earlier new block ("on the counter", "a top on ..."):
+      {"kind":"onTop","of":"S1","overhang":0.05}   height is then the thickness.
 - {"op":"hideTag","tag":"..."}   {"op":"showTag","tag":"..."}
 - {"op":"screenshot"}   (the program frames the view)
 - {"op":"save","fileName":"..."}
@@ -48,20 +50,29 @@ Operations:
 Rules:
 - Only use refs (R1, R2 ...) from the ROOM SUMMARY; pick the item whose name matches the brief's words.
 - Use the brief's sizes exactly, in metres. Use the tag and material the brief's rules give.
-- New build ids: use exactly the ids you are told to use, in order.
+- Only build what the change asks to ADD. Taking something out is only a "replace": never build a new block for it,
+  and never place a new block beside something that is being taken out.
 - Only steps THIS change asks for: no extra screenshots, saves, tag steps or replaces.
 - "inside" a wall or the entrance means the side facing into the room.
-- Write in English only. Never repeat a step.`;
+- New blocks must not overlap each other. Write in English only. Never repeat a step.`;
 
-const EXAMPLE = `Example (another room). Change: "2. Add a shelf 2.0 m long, 0.4 m deep, 0.9 m high, 0.5 m south of the
-window wall, centred, in oak." R4 is the window wall; the brief's rules say tag "Furniture (AGENT)" and oak = RGB 180,140,90.
+const EXAMPLE = `Example 1 (another room). Change: "2. Add a shelf 2.0 m long (east-west), 0.4 m deep, 0.9 m high, 0.5 m
+south of the window wall (R4), centred, in oak." The brief's rules say tag "Furniture (AGENT)" and oak = RGB 180,140,90.
 New build ids: S3. Answer:
-{"type":"steps","steps":[{"op":"build","id":"S3","name":"Shelf - oak","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.5,"along":2.0,"across":0.4,"shift":0},"height":0.9,"base":0,"tag":"Furniture (AGENT)","material":{"name":"Oak","rgb":[180,140,90]}}],"reason":""}
+{"type":"steps","steps":[{"op":"build","id":"S3","name":"Shelf - oak","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.5,"eastWest":2.0,"northSouth":0.4,"shift":0},"height":0.9,"base":0,"tag":"Furniture (AGENT)","material":{"name":"Oak","rgb":[180,140,90]}}],"reason":""}
 
-Example of a PAIR. Change: "3. Two planters 0.5 m wide, 3.0 m long, 0.4 m high, 2.0 m inside the door wall (R6, runs north-south),
-one each side of a 1.2 m path." Both go on the SAME side of R6 (the inside, west); "shift" moves them apart along the wall:
-each centre is 1.2/2 + 0.5/2 = 0.85 m from the middle, so shift +0.85 and -0.85. New build ids: S4, S5. Answer:
-{"type":"steps","steps":[{"op":"build","id":"S4","name":"Planter north","placement":{"kind":"beside","anchor":"R6","side":"west","gap":2.0,"along":0.5,"across":3.0,"shift":0.85},"height":0.4,"base":0,"tag":"Furniture (AGENT)"},{"op":"build","id":"S5","name":"Planter south","placement":{"kind":"beside","anchor":"R6","side":"west","gap":2.0,"along":0.5,"across":3.0,"shift":-0.85},"height":0.4,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}`;
+Example 2, a PAIR. Change: "3. Two planters inside the door wall (R6, runs north-south), each 3.0 m long running west from
+2.0 m inside the wall, 0.5 m wide, 0.4 m high, one each side of a path; keep 1.2 m clear between them."
+Both stand on the SAME side of R6 (west = inside). Running west -> eastWest 3.0, northSouth 0.5.
+Clear gap 1.2 between two 0.5-wide blocks: each centre is 1.2/2 + 0.5/2 = 0.85 from the middle, so shift +0.85 and -0.85.
+New build ids: S4, S5. Answer:
+{"type":"steps","steps":[{"op":"build","id":"S4","name":"Planter north","placement":{"kind":"beside","anchor":"R6","side":"west","gap":2.0,"eastWest":3.0,"northSouth":0.5,"shift":0.85},"height":0.4,"base":0,"tag":"Furniture (AGENT)"},{"op":"build","id":"S5","name":"Planter south","placement":{"kind":"beside","anchor":"R6","side":"west","gap":2.0,"eastWest":3.0,"northSouth":0.5,"shift":-0.85},"height":0.4,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
+
+Example 3. Change: "4. A glass top on the shelf, 0.02 m thick, 0.03 m overhang." The shelf is S3. Answer:
+{"type":"steps","steps":[{"op":"build","id":"S6","name":"Shelf top - glass","placement":{"kind":"onTop","of":"S3","overhang":0.03},"height":0.02,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
+
+Example 4. Change: "1. Take out the old sofa (R2)." Answer:
+{"type":"steps","steps":[{"op":"replace","target":"R2"}],"reason":""}`;
 
 export type ChangeOutcome = {
   line: number;
@@ -73,6 +84,9 @@ export type ChangeOutcome = {
 };
 
 export type PlanResult = { draft: Draft; answers: { line: number; text: string }[]; outcomes: ChangeOutcome[] };
+
+/** "on the counter", "on top of", "a top" (but not "on the floor" / "on the east side"). */
+const ON_SOMETHING = /\bon top of\b|\bon the (?!floor\b|ground\b|east\b|west\b|north\b|south\b|left\b|right\b|side\b|tag\b)\w+|\btop\b/i;
 
 const VAGUE_REASON = /coordinat|position|exact|align|camera|view|orientation|finali[sz]|not specified|unknown location/i;
 
@@ -196,6 +210,10 @@ export function checkAnswer(
       if (a.warnings.some((w) => w.includes("outside the room"))) {
         problems.push(`${a.builds} ends up outside the room: check "side" (the inside of a wall faces into the room) and "shift"`);
       }
+      for (const w of a.warnings) {
+        const m = w.match(/it overlaps (S\d+) "/);
+        if (m) problems.push(`${a.builds} overlaps ${m[1]}, another new block: check eastWest/northSouth and shift`);
+      }
     }
   }
   return { answer, problems };
@@ -213,6 +231,30 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
 
   if (/\d(\.\d+)?\s*m\b/.test(t) && answer.type === "steps" && !has("build")) {
     problems.push(`change ${change.line} gives sizes in metres for something new, so it needs a "build" step`);
+  }
+  const sizes = /\d(\.\d+)?\s*m\b/.test(t);
+  if (has("build") && !sizes && !/\b(add|new|build|top)\b/i.test(t)) {
+    problems.push(`change ${change.line} doesn't ask to add anything new, so it must not build a block`);
+  }
+  const replaced = new Set([...done, ...answer.steps].filter((st) => st.op === "replace").map((st) => (st as { target: string }).target));
+  for (const st of answer.steps) {
+    if (st.op !== "build") continue;
+    if (st.placement.kind === "beside" && replaced.has(st.placement.anchor)) {
+      problems.push(`${st.id} is placed beside ${st.placement.anchor}, which this plan takes out; choose the item the change names`);
+    }
+    if (st.placement.kind === "beside" && ON_SOMETHING.test(t) && done.some((d) => d.op === "build")) {
+      problems.push(`change ${change.line} puts it ON an earlier block: use "onTop" with that block's id, not "beside"`);
+    }
+  }
+  // "4.0 m long running west" / "3.0 m long (north-south)": check the size went to the right direction.
+  for (const m of t.matchAll(/(\d+(?:\.\d+)?)\s*m long\b[^.;]{0,25}?\b(east-west|north-south|west|east|north|south)\b/gi)) {
+    const value = Number(m[1]);
+    const field = /east|west/i.test(m[2]!) && !/north-south/i.test(m[2]!) ? "eastWest" : "northSouth";
+    for (const st of answer.steps) {
+      if (st.op === "build" && st.placement.kind === "beside" && Math.abs(st.placement[field] - value) > 0.001) {
+        problems.push(`the brief says "${m[0]}", so ${st.id} needs ${field} ${value} (it has ${st.placement[field]})`);
+      }
+    }
   }
   if (has("screenshot") && !/screenshot|image|picture|photo|capture/i.test(t)) {
     problems.push(`change ${change.line} doesn't ask for a screenshot; remove it (the plan already shows what replaced items contain)`);

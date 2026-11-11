@@ -3,7 +3,7 @@
     { "op": "replace", "line": 1, "target": "R5" },
     {
       "op": "build", "line": 2, "id": "S1", "name": "Reception counter - light oak",
-      "placement": { "kind": "beside", "anchor": "R1", "side": "east", "gap": 1.2, "along": 3.0, "across": 0.7, "shift": 0 },
+      "placement": { "kind": "beside", "anchor": "R1", "side": "east", "gap": 1.2, "eastWest": 0.7, "northSouth": 3.0, "shift": 0 },
       "height": 1.05, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
       "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] }
     },
@@ -15,19 +15,19 @@
     },
     {
       "op": "build", "line": 4, "id": "S3", "name": "Forest bench - light oak",
-      "placement": { "kind": "beside", "anchor": "R8", "side": "east", "gap": 0, "along": 6.0, "across": 0.5, "shift": 0 },
+      "placement": { "kind": "beside", "anchor": "R8", "side": "east", "gap": 0, "eastWest": 0.5, "northSouth": 6.0, "shift": 0 },
       "height": 0.45, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
       "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] }
     },
     {
       "op": "build", "line": 5, "id": "S4", "name": "Entrance planter kerb north - travertine",
-      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "along": 0.6, "across": 4.0, "shift": 1.2 },
+      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "eastWest": 4.0, "northSouth": 0.6, "shift": 1.2 },
       "height": 0.35, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
       "material": { "name": "UMD Travertine", "rgb": [222, 211, 190] }
     },
     {
       "op": "build", "line": 5, "id": "S5", "name": "Entrance planter kerb south - travertine",
-      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "along": 0.6, "across": 4.0, "shift": -1.2 },
+      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "eastWest": 4.0, "northSouth": 0.6, "shift": -1.2 },
       "height": 0.35, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
       "material": { "name": "UMD Travertine", "rgb": [222, 211, 190] }
     },
