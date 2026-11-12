@@ -48,12 +48,13 @@ module UMDBridge
       'moveToReplaced' => :write,
       'listComponents' => :read,
       'componentInfo' => :write, # loads a file for a moment: only on a dev model
-      'placeComponent' => :write
+      'placeComponent' => :write,
+      'componentPreview' => :read # makes a PNG of a component FILE; the model is not touched
     }
   end
 
   def self.version
-    '0.4.0'
+    '0.5.0'
   end
 
   def self.protocol

@@ -1,6 +1,6 @@
 import { TOOLS, type Bounds, type ToolName, type Vec2 } from "../protocol/tools";
 import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
-import { plausibility, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
+import { fitComponent, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
 
 /**
@@ -179,30 +179,36 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           );
           break;
         }
-        const wrongScale = plausibility(entry.file, entry.size);
-        if (wrongScale) {
-          errors.push(`line ${step.line}: ${entry.file} looks wrong: ${wrongScale}. Pick another component, or fix the file's scale in SketchUp`);
+        const roomHeight = summary.room.bounds.max[2] - (floorZ + step.base);
+        const fit = fitComponent(entry.file, entry.size, { roomHeight, wanted: step.size });
+        if (!fit) {
+          errors.push(`line ${step.line}: ${entry.file} is ${fmt(Math.max(entry.size[0], entry.size[1]))} m across and not a kind of piece the agent knows, so it can't tell the right size: give its size in the brief`);
           break;
         }
-        const [ew, ns, h] = turnedSize(entry.size, step.rotation);
+        const [ew, ns, h] = turnedSize(fit.size, step.rotation);
         const placed = place({ ...step.placement, eastWest: ew, northSouth: ns }, step, refs, built, floorZ, errors);
         if (!placed) break;
         const { rect, z0, where } = placed;
         built.set(step.id, { rect, z0, z1: z0 + h, name: step.name });
         const box: Bounds = { min: [rect.x0, rect.y0, z0], max: [rect.x1, rect.y1, z0 + h] };
-        if (box.max[2] > summary.room.bounds.max[2] + 0.001) {
-          errors.push(`line ${step.line}: ${entry.file} is ${fmt(h)} m tall and would go through the ceiling (room top z ${fmt(summary.room.bounds.max[2])})`);
-          break;
-        }
         add({
           line: step.line,
           title: `PLACE ${step.id} "${step.name}"  (${entry.file})  ${fmtSize([ew, ns, h])} m${step.rotation ? `, turned ${step.rotation}°` : ""}`,
           tool: "placeComponent",
-          args: { jobGroup, file: entry.file, name: step.name, tag: step.tag, at: [round(rect.x0), round(rect.y0), round(z0)], rotation: step.rotation },
+          args: {
+            jobGroup,
+            file: entry.file,
+            name: step.name,
+            tag: step.tag,
+            at: [round(rect.x0), round(rect.y0), round(z0)],
+            rotation: step.rotation,
+            scale: fit.scale,
+          },
           details: [
             where,
             `at ${boxText(box)}`,
             `${fmt(ew)} m east-west, ${fmt(ns)} m north-south, top ${fmt(h)} m above the floor (a door is about 2.1 m)`,
+            ...(fit.reason ? [`SCALED ×${fit.scale}: ${fit.reason} (your file is not changed)`] : []),
             `tag: ${step.tag}`,
             "a real 3D Warehouse component from your components folder",
           ],

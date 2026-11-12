@@ -47,8 +47,11 @@ Operations:
 - {"op":"place","id":"S2","component":"<file name from COMPONENTS>","name":"...","placement":{"kind":"beside","anchor":"R1","side":"east","gap":0.5,"shift":0},"rotation":0,"base":0,"tag":"..."}
     a REAL 3D Warehouse component from the COMPONENTS list (furniture, plants). Use it whenever the change
     asks for a component, a real piece, a plant, a tree or named furniture; never draw those as "build" blocks.
-    Its size comes from the list, so give no eastWest/northSouth. rotation: 0, 90, 180 or 270 (90 and 270
-    swap its east-west and north-south sizes). Ids share the S1, S2 ... numbering with build steps.
+    Its size comes from the list (the program already corrects files drawn at the wrong scale), so give no
+    eastWest/northSouth. Only if the brief gives THIS piece's size, add "size":{"height":H} or {"across":A}.
+    rotation: 0, 90, 180 or 270 (90 and 270 swap its east-west and north-south sizes).
+    Ids share the S1, S2 ... numbering with build steps. You will be asked to pick ONE file; the designer
+    sees similar ones and makes the final choice, so pick the one whose name fits the brief best.
 - {"op":"hideTag","tag":"..."}   {"op":"showTag","tag":"..."}
 - {"op":"screenshot"}   (the program frames the view)
 - {"op":"save","fileName":"..."}

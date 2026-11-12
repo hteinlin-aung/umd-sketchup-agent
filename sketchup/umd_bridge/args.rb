@@ -58,6 +58,12 @@ module UMDBridge
       v
     end
 
+    def number(args, key, min, max, default)
+      v = args.key?(key) ? args[key] : default
+      raise invalid(key, "must be a number from #{min} to #{max}") unless v.is_a?(Numeric) && v.finite? && v >= min && v <= max
+      v.to_f
+    end
+
     def enum(args, key, list, default)
       v = args.key?(key) ? args[key] : default
       raise invalid(key, "must be one of #{list.join(', ')}") unless list.include?(v)
@@ -329,15 +335,21 @@ module UMDBridge
     end
 
     def placeComponent(a)
-      Args.only!(a, %w[jobGroup file name tag at rotation])
+      Args.only!(a, %w[jobGroup file name tag at rotation scale])
       {
         'jobGroup' => Args.name(a, 'jobGroup'),
         'file' => Args.component_file(a, 'file'),
         'name' => Args.name(a, 'name'),
         'tag' => Args.name(a, 'tag'),
         'at' => Args.vec3(a, 'at'),
-        'rotation' => Args.enum(a, 'rotation', [0, 90, 180, 270], 0)
+        'rotation' => Args.enum(a, 'rotation', [0, 90, 180, 270], 0),
+        'scale' => Args.number(a, 'scale', 0.01, 100, 1)
       }
+    end
+
+    def componentPreview(a)
+      Args.only!(a, %w[file])
+      { 'file' => Args.component_file(a, 'file') }
     end
 
     def saveCopy(a)

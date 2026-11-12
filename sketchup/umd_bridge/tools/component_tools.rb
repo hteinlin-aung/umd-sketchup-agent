@@ -1,3 +1,5 @@
+require 'fileutils'
+
 # UMD Bridge - real 3D Warehouse components from ONE folder (Week 3).
 #
 # The folder is <queue folder's parent>/components, e.g. E:/Cowork_Field/Thesis_SketchUp/components.
@@ -54,6 +56,18 @@ module UMDBridge
       info
     end
 
+    # A picture of the file, made by SketchUp from the file itself (nothing is loaded into the model).
+    # Saved in <queue>/images/previews/ so you can look at the candidates before choosing.
+    def componentPreview(args, ctx)
+      path, = component_path(ctx, args['file'])
+      dir = File.join(ctx[:queue_dir].to_s, 'images', 'previews')
+      FileUtils.mkdir_p(dir)
+      png = File.join(dir, File.basename(args['file'], '.*') + '.png')
+      ok = Sketchup.save_thumbnail(path, png)
+      raise ToolError.new('TOOL_ERROR', "SketchUp could not make a preview of #{args['file']}") unless ok && File.exist?(png)
+      { 'file' => args['file'], 'path' => png, 'bytes' => File.size(png) }
+    end
+
     # Places the component so that its box's min corner (after rotating) is exactly at `at` (world, metres).
     def placeComponent(args, ctx)
       model = Sketchup.active_model
@@ -61,7 +75,9 @@ module UMDBridge
       defn, = load_definition(model, path)
       job = job_group(model, args['jobGroup'])
 
-      rot = Geom::Transformation.rotation(ORIGIN, Z_AXIS, args['rotation'].degrees)
+      # Uniform scale first (files drawn at the wrong scale), then the turn, then the move.
+      rot = Geom::Transformation.rotation(ORIGIN, Z_AXIS, args['rotation'].degrees) *
+            Geom::Transformation.scaling(ORIGIN, args['scale'])
       turned = Geom::BoundingBox.new
       (0..7).each { |i| turned.add(rot * defn.bounds.corner(i)) }
       target = Geo.pt(args['at'])

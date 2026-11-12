@@ -8,8 +8,8 @@
 // Everything is saved in runs/agent_<time>/ (summary, the model's answers, draft, plan, report).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { catalogCache, loadCatalog } from "../agent/catalog";
+import { chooseComponents } from "../agent/choose";
 import { executePlan, renderReport } from "../agent/execute";
 import { Draft } from "../agent/draft";
 import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
@@ -22,6 +22,7 @@ import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
 import { smokeRunId } from "../smoke/runSmoke";
 import { checkAndRepair, verifyRun } from "../geometry/checks";
+import { terminal } from "./terminal";
 import { findRoom, renderSummary, summarizeRoom } from "../summary/roomSummary";
 
 function flag(args: string[], name: string): string | undefined {
@@ -96,14 +97,30 @@ async function main(): Promise<number> {
   }
   writeFileSync(`${dir}/draft.json`, JSON.stringify(draft, null, 2));
 
+  // "Which one do you like?" The designer picks every component (the agent's pick is option 1).
+  // With --dry the choices are only listed.
+  const rl = terminal();
+  const ask = rl.ask;
+  const chosenLines: string[] = [];
+  if (draft.steps.some((st) => st.op === "place")) {
+    console.log("");
+    const chosen = await chooseComponents(client, draft, catalog, dry ? null : ask);
+    draft = chosen.draft;
+    if (chosen.choices.length) {
+      writeFileSync(`${dir}/choices.json`, JSON.stringify(chosen.choices, null, 2));
+      for (const c of chosen.choices) chosenLines.push(`CHOSEN ${c.step} (brief line ${c.line}): ${c.picked}  (from ${c.from.join(", ")})`);
+      writeFileSync(`${dir}/draft.json`, JSON.stringify(draft, null, 2));
+    }
+  }
+
   // Week 3: check every new block against the real parts of the model; slide it clear where possible.
   console.log("checking new blocks against the real model ...");
   const checked = await checkAndRepair(client, draft, summary, resolve, briefRules(brief));
   const plan = checked.plan;
-  const checks: string[] = [];
+  const checks: string[] = [...chosenLines];
   for (const r of checked.repairs) checks.push(`MOVED ${r.step} (brief line ${r.line}) ${r.moved} m ${r.direction}: ${r.because}`);
   for (const c of checked.unresolved) checks.push(`NOT FIXED ${c.step}: collides with "${c.with}" (${c.path.join(" > ")})`);
-  if (checks.length === 0) checks.push("no new block cuts into any real part of the model");
+  if (checked.repairs.length === 0 && checked.unresolved.length === 0) checks.push("no new block cuts into any real part of the model");
   if (checked.repairs.length) writeFileSync(`${dir}/draft.repaired.json`, JSON.stringify(checked.draft, null, 2));
   writeFileSync(`${dir}/plan.json`, JSON.stringify(plan, null, 2));
   console.log(`\n${renderPlan(plan)}\n\nGEOMETRY CHECKS:\n${checks.map((c) => `  ${c}`).join("\n")}\n`);
@@ -112,21 +129,22 @@ async function main(): Promise<number> {
     writeFileSync(`${dir}/report.md`, renderReport({ brief: brief.text, summaryText, plan, run, model: modelName, checks }));
 
   if (plan.errors.length) {
+    rl.close();
     report(null);
     console.log(`The plan has errors, so nothing ran. Everything is in ${dir}/`);
     return 1;
   }
   if (dry) {
+    rl.close();
     report(null);
     console.log(`Plan only (--dry). Everything is in ${dir}/`);
     return 0;
   }
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
   const moves = checked.repairs.length
     ? ` NOTE: ${checked.repairs.length} automatic move${checked.repairs.length > 1 ? "s" : ""} changed your design (see GEOMETRY CHECKS).`
     : "";
-  const answer = await rl.question(`Run these ${plan.actions.length} actions on ${ping.data.modelTitle}?${moves} Type y to run, anything else to stop: `);
+  const answer = await rl.ask(`Run these ${plan.actions.length} actions on ${ping.data.modelTitle}?${moves} Type y to run, anything else to stop: `);
   rl.close();
   if (answer.trim().toLowerCase() !== "y") {
     report(null);

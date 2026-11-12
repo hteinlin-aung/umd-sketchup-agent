@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scorePlan } from "../../src/agent/bench";
-import { loadCatalog, plausibility, renderCatalog, turnedSize } from "../../src/agent/catalog";
+import { fitComponent, loadCatalog, plausibility, renderCatalog, turnedSize } from "../../src/agent/catalog";
 import type { DraftStep } from "../../src/agent/draft";
 import { executePlan } from "../../src/agent/execute";
 import { checkAnswer } from "../../src/agent/planner";
@@ -42,13 +42,13 @@ describe("the components catalog", () => {
     const first = await loadCatalog(client, { cachePath: path });
     expect(first.catalog.get("3DW_Money tree potted.skp")!.size).toEqual([0.6, 0.6, 1.6]);
     const measuredFirst = sketchup.received.filter((c) => c.tool === "componentInfo").length;
-    expect(measuredFirst).toBe(5);
+    expect(measuredFirst).toBe(7); // the fake folder has 7 files
 
     sketchup.components.set("3DW_Fittonia.skp", { bytes: 300_000, size: [0.3, 0.3, 0.25] });
     await loadCatalog(client, { cachePath: path });
     const measuredAgain = sketchup.received.filter((c) => c.tool === "componentInfo").map((c) => c.args.file);
     expect(measuredAgain.slice(measuredFirst)).toEqual(["3DW_Fittonia.skp", "3DW_Huge test model.skp"]); // new + the one that failed
-    expect(JSON.parse(readFileSync(path, "utf8"))).toHaveLength(5);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toHaveLength(7); // 8 files, the 61 MB one is not usable
   });
 
   it("reports a file over the size limit instead of loading it", async () => {
@@ -70,43 +70,79 @@ describe("the components catalog", () => {
   });
 });
 
-describe("does the size match the name? (real sizes from Windows, 2026-11-12)", () => {
-  it.each<[string, [number, number, number], RegExp]>([
-    ["3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636], /a coffee table 2\.64 m tall/],
-    ["3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77], /an easel 3\.60 m across/],
-    ["ZEN+GARDEN3DW_zen_garden_Finkong.skp", [54.75, 5.73, 1.42], /zen garden or rocks 54\.75 m across/],
-    ["3DW_zen_garden_MarkE.skp", [16.3, 8.14, 5.36], /zen garden or rocks 5\.36 m tall/],
-    ["3DW_banyan_tree_3D_MananC.skp", [24, 24, 15], /24\.00 m across: too big for an interior/],
-  ])("flags %s", (file, size, why) => {
-    expect(plausibility(file, size)).toMatch(why);
+describe("scale-to-fit: what size should it be? (real sizes from Windows, 2026-11-12)", () => {
+  it.each<[string, [number, number, number], number, RegExp]>([
+    ["3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636], 0.42, /a coffee table 2\.64 m high is outside the usual 0\.3-0\.55 m, so it is scaled to 0\.42 m/],
+    ["3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77], 1.77, /^$/], // 1.77 m high is a normal easel: left alone
+    ["3DW_zen_garden_MarkE.skp", [16.3, 8.14, 5.36], 3.0, /zen garden or rocks 16\.3 m across .* scaled to 3 m/],
+    ["3DW_banyan_tree_3D_MananC.skp", [24, 24, 15], 2.8, /an indoor tree 15 m high .* scaled to 2\.8 m/],
+  ])("%s", (file, size, wantedKey, why) => {
+    const fit = fitComponent(file, size)!;
+    const key = /zen/.test(file) ? Math.max(fit.size[0], fit.size[1]) : fit.size[2];
+    expect(key).toBeCloseTo(wantedKey, 2);
+    expect(fit.reason ?? "").toMatch(why);
   });
 
-  it.each<[string, [number, number, number]]>([
-    ["3DW_money_tree_Pachira_VitorB_86654.skp", [1.1, 1.0, 1.778]],
-    ["3DW_Mercy S curved boucle sofa.skp", [1.7, 3.0, 0.62]],
-    ["3DW_Waltz chair.skp", [0.6, 0.65, 0.8]],
-    ["3DW_hands_sculpture.skp", [1.2, 1.2, 2.2]],
-  ])("accepts %s", (file, size) => {
-    expect(plausibility(file, size)).toBeNull();
+  it("keeps proportions: one scale for all three directions", () => {
+    const fit = fitComponent("3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636])!;
+    expect(fit.size[0] / fit.size[2]).toBeCloseTo(3.955 / 2.636, 3);
+    expect(fit.scale).toBeCloseTo(0.42 / 2.636, 4);
   });
 
-  it("tells the model not to use a mis-scaled one, and the plan refuses it", async () => {
+  it("leaves a normal piece alone", () => {
+    expect(fitComponent("3DW_Mercy S curved boucle sofa.skp", [1.7, 3.0, 0.8])).toEqual({ scale: 1, size: [1.7, 3.0, 0.8], reason: null });
+  });
+
+  it("the brief's own size wins", () => {
+    const fit = fitComponent("3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636], { wanted: { across: 1.1 } })!;
+    expect(Math.max(fit.size[0], fit.size[1])).toBeCloseTo(1.1, 3);
+    expect(fit.reason).toMatch(/to the brief's size \(1\.1 m across\)/);
+  });
+
+  it("always fits under the ceiling", () => {
+    const fit = fitComponent("3DW_Banyan tree.skp", [3.2, 3.0, 4.6], { roomHeight: 3.5 })!;
+    expect(fit.size[2]).toBeCloseTo(2.8, 3); // the tree rule already makes it 2.8 m, which fits under 3.3
+    const tall = fitComponent("3DW_Banyan tree.skp", [3.2, 3.0, 4.6], { roomHeight: 2.6, wanted: { height: 3.5 } })!;
+    expect(tall.size[2]).toBeCloseTo(2.4, 3);
+    expect(tall.reason).toMatch(/then made 2\.4 m high to fit under the ceiling/);
+  });
+
+  it("refuses only what it can't judge: an unknown kind of thing over 12 m, with no size in the brief", () => {
+    expect(fitComponent("3DW_mystery_object.skp", [20, 3, 2])).toBeNull();
+    expect(plausibility("3DW_mystery_object.skp", [20, 3, 2])).toMatch(/give its size in the brief/);
+    expect(fitComponent("3DW_mystery_object.skp", [20, 3, 2], { wanted: { across: 2 } })!.scale).toBeCloseTo(0.1, 4);
+  });
+
+  it("shows the model each piece at the size it will be placed", async () => {
+    const { sketchup, client } = await setup();
+    sketchup.components.set("3DW_coffee_table_marble_round.skp", { bytes: 500_000, size: [3.955, 3.915, 2.636] });
+    const { catalog } = await loadCatalog(client, { cachePath: cache() });
+    expect(renderCatalog(catalog)).toMatch(/3DW_coffee_table_marble_round\.skp: 0\.63 x 0\.62 x 0\.42 {2}\(file drawn at the wrong scale; placed at this size\)/);
+  });
+
+  it("places the mis-scaled table at its fitted size and says why in the plan", async () => {
     const { sketchup, client, summary } = await setup();
     sketchup.components.set("3DW_coffee_table_marble_round.skp", { bytes: 500_000, size: [3.955, 3.915, 2.636] });
     const { catalog } = await loadCatalog(client, { cachePath: cache() });
-    expect(renderCatalog(catalog)).toMatch(/3DW_coffee_table_marble_round\.skp: 3\.96 x 3\.92 x 2\.64 {2}\(DO NOT USE: looks wrong, a coffee table/);
     const table = { ...moneyTree, component: "3DW_coffee_table_marble_round.skp" } as DraftStep;
-    const errors = resolveDraft({ steps: [table, save], notDone: [] }, summary, { runId: "x", briefName: "p", catalog }).errors;
-    expect(errors[0]).toMatch(/looks wrong: a coffee table 2\.64 m tall.*Pick another component, or fix the file's scale in SketchUp/);
+    const plan = resolveDraft({ steps: [table, save], notDone: [] }, summary, { runId: "x", briefName: "p", catalog });
+    expect(plan.errors).toEqual([]);
+    const a = plan.actions[0]!;
+    expect(a.args.scale).toBeCloseTo(0.1593, 4);
+    expect(a.box!.max[2] - a.box!.min[2]).toBeCloseTo(0.42, 3);
+    expect(a.details.join("\n")).toMatch(/SCALED ×0\.1593: a coffee table 2\.64 m high is outside/);
+    const run = await executePlan(new BridgeClient(sketchup), plan);
+    expect(run.results[0]!.message).toMatch(/measured 0\.630 x 0\.624 x 0\.420 m/);
   });
 
-  it("refuses a component that would go through the ceiling (the 4.6 m banyan in a 3.5 m room)", async () => {
+  it("uses the brief's size when the place step gives one", async () => {
     const { summary, opts } = await setup();
-    const banyan = { ...moneyTree, component: "3DW_Banyan tree.skp" } as DraftStep;
-    expect(resolveDraft({ steps: [banyan, save], notDone: [] }, summary, opts).errors[0]).toMatch(/4\.6 m tall and would go through the ceiling/);
+    const sized = { ...moneyTree, size: { height: 2.0 } } as DraftStep;
+    const a = resolveDraft({ steps: [sized, save], notDone: [] }, summary, opts).actions[0]!;
+    expect(a.box!.max[2] - a.box!.min[2]).toBeCloseTo(2.0, 3);
   });
 
-  it("shows each placed component's height against a door, so a wrong size is easy to see", async () => {
+  it("shows each placed component's height against a door", async () => {
     const { summary, opts } = await setup();
     const a = resolveDraft({ steps: [moneyTree, save], notDone: [] }, summary, opts).actions[0]!;
     expect(a.details).toContain("0.6 m east-west, 0.6 m north-south, top 1.6 m above the floor (a door is about 2.1 m)");

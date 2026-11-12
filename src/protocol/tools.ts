@@ -392,12 +392,17 @@ export const PlaceComponentArgs = z.strictObject({
   tag: Name,
   at: Vec3, // where the component's box MIN corner (south-west, bottom) goes, after rotating
   rotation: Rotation.default(0), // degrees, anticlockwise seen from above
+  scale: z.number().min(0.01).max(100).default(1), // uniform (all three directions alike), for files drawn at the wrong scale
 });
 export const PlaceComponentData = EntityRef.extend({
   jobGroupId: z.number().int(),
   definitionName: z.string(),
   worldBounds: Bounds, // measured after placing
 });
+
+/** A picture of a component file, made by SketchUp from the file itself (the model is not touched). */
+export const ComponentPreviewArgs = z.strictObject({ file: ComponentFile });
+export const ComponentPreviewData = z.object({ file: z.string(), path: z.string(), bytes: z.number().int() });
 
 // ---------- the registry ----------
 
@@ -425,6 +430,7 @@ export const TOOLS = {
   listComponents: { args: ListComponentsArgs, data: ListComponentsData, kind: "read", changesModel: false },
   componentInfo: { args: ComponentInfoArgs, data: ComponentInfoData, kind: "write", changesModel: false },
   placeComponent: { args: PlaceComponentArgs, data: PlaceComponentData, kind: "write", changesModel: true },
+  componentPreview: { args: ComponentPreviewArgs, data: ComponentPreviewData, kind: "read", changesModel: false },
 } as const satisfies Record<string, { args: z.ZodType; data: z.ZodType; kind: ToolKind; changesModel: boolean }>;
 
 export type ToolName = keyof typeof TOOLS;

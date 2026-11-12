@@ -30,7 +30,7 @@ function signature(a: Action): string {
     }
     case "placeComponent": {
       const at = args.at as number[];
-      return `place ${String(args.file).toLowerCase()} at ${at.map(cm).join(",")} turned ${args.rotation}`;
+      return `place ${String(args.file).toLowerCase()} at ${at.map(cm).join(",")} turned ${args.rotation} x${Number(args.scale ?? 1).toFixed(3)}`;
     }
     case "applyMaterial":
       return `paint ${String(args.material).toLowerCase()}`;

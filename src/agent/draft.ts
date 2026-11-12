@@ -74,6 +74,8 @@ const Place = z.strictObject({
   rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).default(0),
   base: Metres(0, 4).default(0),
   tag: Label,
+  // Only when the brief gives THIS piece's size; otherwise the code picks a sensible size (catalog.ts).
+  size: z.strictObject({ height: Metres(0.05, 6).optional(), across: Metres(0.05, 12).optional() }).optional(),
 });
 const HideTag = z.strictObject({ op: z.literal("hideTag"), tag: Label });
 const ShowTag = z.strictObject({ op: z.literal("showTag"), tag: Label });

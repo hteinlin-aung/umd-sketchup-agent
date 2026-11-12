@@ -85,6 +85,8 @@ export class MockSketchUp implements Transport {
     ["3DW_Money tree potted.skp", { bytes: 2_100_000, size: [0.6, 0.6, 1.6] }],
     ["3DW_Round marble coffee table.skp", { bytes: 900_000, size: [0.9, 0.9, 0.42] }],
     ["3DW_Huge test model.skp", { bytes: 61_000_000, size: [1, 1, 1] }],
+    ["3DW_Fittonia potted.skp", { bytes: 300_000, size: [0.35, 0.35, 0.3] }],
+    ["3DW_coffee_table_marble_round.skp", { bytes: 500_000, size: [3.955, 3.915, 2.636] }], // the real mis-scaled one
   ]);
 
   constructor(opts: MockOptions = {}) {
@@ -261,6 +263,11 @@ export class MockSketchUp implements Transport {
         return { data: this.listComponents(), modified: false, warnings: [] };
       case "componentInfo":
         return { data: this.componentInfo(args as ArgsOut<"componentInfo">), modified: false, warnings: [] };
+      case "componentPreview": {
+        const pa = args as ArgsOut<"componentPreview">;
+        this.component(pa.file);
+        return { data: { file: pa.file, path: `MOCK/images/previews/${pa.file.replace(/\.skp$/i, ".png")}`, bytes: 12_000 }, modified: false, warnings: [] };
+      }
       case "placeComponent":
         return { data: this.placeComponent(args as ArgsOut<"placeComponent">), modified: true, warnings: [] };
     }
@@ -546,7 +553,9 @@ export class MockSketchUp implements Transport {
 
   private placeComponent(a: ArgsOut<"placeComponent">) {
     const c = this.component(a.file);
-    const [sx, sy, sz] = a.rotation === 90 || a.rotation === 270 ? [c.size[1], c.size[0], c.size[2]] : c.size;
+    const k = a.scale;
+    const turned: Vec3 = a.rotation === 90 || a.rotation === 270 ? [c.size[1], c.size[0], c.size[2]] : c.size;
+    const [sx, sy, sz] = [turned[0] * k, turned[1] * k, turned[2] * k];
     const bounds: Bounds = { min: a.at, max: [a.at[0] + sx, a.at[1] + sy, a.at[2] + sz] };
     const job = this.jobGroup(a.jobGroup, bounds);
     if (!this.tags.has(a.tag)) this.tags.set(a.tag, true);
