@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scorePlan } from "../../src/agent/bench";
-import { loadCatalog, renderCatalog, turnedSize } from "../../src/agent/catalog";
+import { loadCatalog, plausibility, renderCatalog, turnedSize } from "../../src/agent/catalog";
 import type { DraftStep } from "../../src/agent/draft";
 import { executePlan } from "../../src/agent/execute";
 import { checkAnswer } from "../../src/agent/planner";
@@ -67,6 +67,49 @@ describe("the components catalog", () => {
     expect(renderCatalog(catalog)).toContain("- 3DW_Mercy S curved boucle sofa.skp: 1.7 x 3 x 0.62");
     expect(turnedSize([1.7, 3, 0.62], 90)).toEqual([3, 1.7, 0.62]);
     expect(turnedSize([1.7, 3, 0.62], 180)).toEqual([1.7, 3, 0.62]);
+  });
+});
+
+describe("does the size match the name? (real sizes from Windows, 2026-11-12)", () => {
+  it.each<[string, [number, number, number], RegExp]>([
+    ["3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636], /a coffee table 2\.64 m tall/],
+    ["3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77], /an easel 3\.60 m across/],
+    ["ZEN+GARDEN3DW_zen_garden_Finkong.skp", [54.75, 5.73, 1.42], /zen garden or rocks 54\.75 m across/],
+    ["3DW_zen_garden_MarkE.skp", [16.3, 8.14, 5.36], /zen garden or rocks 5\.36 m tall/],
+    ["3DW_banyan_tree_3D_MananC.skp", [24, 24, 15], /24\.00 m across: too big for an interior/],
+  ])("flags %s", (file, size, why) => {
+    expect(plausibility(file, size)).toMatch(why);
+  });
+
+  it.each<[string, [number, number, number]]>([
+    ["3DW_money_tree_Pachira_VitorB_86654.skp", [1.1, 1.0, 1.778]],
+    ["3DW_Mercy S curved boucle sofa.skp", [1.7, 3.0, 0.62]],
+    ["3DW_Waltz chair.skp", [0.6, 0.65, 0.8]],
+    ["3DW_hands_sculpture.skp", [1.2, 1.2, 2.2]],
+  ])("accepts %s", (file, size) => {
+    expect(plausibility(file, size)).toBeNull();
+  });
+
+  it("tells the model not to use a mis-scaled one, and the plan refuses it", async () => {
+    const { sketchup, client, summary } = await setup();
+    sketchup.components.set("3DW_coffee_table_marble_round.skp", { bytes: 500_000, size: [3.955, 3.915, 2.636] });
+    const { catalog } = await loadCatalog(client, { cachePath: cache() });
+    expect(renderCatalog(catalog)).toMatch(/3DW_coffee_table_marble_round\.skp: 3\.96 x 3\.92 x 2\.64 {2}\(DO NOT USE: looks wrong, a coffee table/);
+    const table = { ...moneyTree, component: "3DW_coffee_table_marble_round.skp" } as DraftStep;
+    const errors = resolveDraft({ steps: [table, save], notDone: [] }, summary, { runId: "x", briefName: "p", catalog }).errors;
+    expect(errors[0]).toMatch(/looks wrong: a coffee table 2\.64 m tall.*Pick another component, or fix the file's scale in SketchUp/);
+  });
+
+  it("refuses a component that would go through the ceiling (the 4.6 m banyan in a 3.5 m room)", async () => {
+    const { summary, opts } = await setup();
+    const banyan = { ...moneyTree, component: "3DW_Banyan tree.skp" } as DraftStep;
+    expect(resolveDraft({ steps: [banyan, save], notDone: [] }, summary, opts).errors[0]).toMatch(/4\.6 m tall and would go through the ceiling/);
+  });
+
+  it("shows each placed component's height against a door, so a wrong size is easy to see", async () => {
+    const { summary, opts } = await setup();
+    const a = resolveDraft({ steps: [moneyTree, save], notDone: [] }, summary, opts).actions[0]!;
+    expect(a.details).toContain("0.6 m east-west, 0.6 m north-south, top 1.6 m above the floor (a door is about 2.1 m)");
   });
 });
 

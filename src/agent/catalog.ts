@@ -63,11 +63,48 @@ export function renderCatalog(catalog: Catalog): string {
   const fmt = (v: number) => (Math.round(v * 100) / 100).toString();
   return [
     "COMPONENTS you can place (file: east-west x north-south x height in metres, as it comes):",
-    ...[...catalog.values()].map((c) => `- ${c.file}: ${c.size.map(fmt).join(" x ")}`),
+    ...[...catalog.values()].map((c) => {
+      const wrong = plausibility(c.file, c.size);
+      return `- ${c.file}: ${c.size.map(fmt).join(" x ")}${wrong ? `  (DO NOT USE: looks wrong, ${wrong})` : ""}`;
+    }),
   ].join("\n");
 }
 
 /** Size after turning it: 90 and 270 swap east-west and north-south. */
 export function turnedSize(size: Vec3, rotation: number): Vec3 {
   return rotation === 90 || rotation === 270 ? [size[1], size[0], size[2]] : size;
+}
+
+/**
+ * Does the file's size make sense for what its name says it is? 3D Warehouse models are often drawn at the
+ * wrong scale: on Windows (2026-11-12) "3DW_coffee_table_marble_round" measured 3.96 x 3.92 x 2.64 m, an easel
+ * 2.9 x 3.6 m, a zen garden 55 m long. The name and the size disagree, like "Sofa set 4" holding only a palm.
+ * Returns a plain-words reason when it looks wrong, else null. Ranges are generous: only clear mistakes.
+ */
+const TYPICAL: { words: RegExp; what: string; maxHeight: number; maxPlan: number }[] = [
+  { words: /coffee.?table|side.?table/i, what: "a coffee table", maxHeight: 0.7, maxPlan: 2.0 },
+  { words: /\btable\b|desk/i, what: "a table", maxHeight: 1.2, maxPlan: 4.0 },
+  { words: /stool|chair|armchair/i, what: "a chair", maxHeight: 1.4, maxPlan: 1.5 },
+  { words: /sofa|couch|bench/i, what: "a sofa or bench", maxHeight: 1.3, maxPlan: 4.5 },
+  { words: /easel/i, what: "an easel", maxHeight: 2.4, maxPlan: 1.5 },
+  { words: /yoga|mat\b/i, what: "a mat", maxHeight: 0.15, maxPlan: 2.5 },
+  { words: /basin|sink/i, what: "a basin", maxHeight: 1.3, maxPlan: 2.0 },
+  { words: /chandelier|lamp|pendant/i, what: "a lamp", maxHeight: 3.0, maxPlan: 3.0 },
+  { words: /fittonia|maranta|potted|pot\b|money.?tree|fern/i, what: "a pot plant", maxHeight: 3.0, maxPlan: 2.5 },
+  { words: /zen.?garden|rock/i, what: "a zen garden or rocks", maxHeight: 2.5, maxPlan: 10 },
+];
+const ANY_MAX_PLAN = 12; // nothing in an interior is 12 m across
+
+export function plausibility(file: string, size: Vec3): string | null {
+  const [x, y, z] = size;
+  const plan = Math.max(x, y);
+  const f = (v: number) => v.toFixed(2);
+  for (const t of TYPICAL) {
+    if (!t.words.test(file)) continue;
+    if (z > t.maxHeight) return `${t.what} ${f(z)} m tall (expected under ${t.maxHeight} m): the file is probably drawn at the wrong scale`;
+    if (plan > t.maxPlan) return `${t.what} ${f(plan)} m across (expected under ${t.maxPlan} m): the file is probably drawn at the wrong scale`;
+    return null;
+  }
+  if (plan > ANY_MAX_PLAN) return `${f(plan)} m across: too big for an interior; the file is probably drawn at the wrong scale`;
+  return null;
 }

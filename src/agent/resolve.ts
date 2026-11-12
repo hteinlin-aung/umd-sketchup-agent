@@ -1,6 +1,6 @@
 import { TOOLS, type Bounds, type ToolName, type Vec2 } from "../protocol/tools";
 import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
-import { turnedSize, type Catalog, type CatalogEntry } from "./catalog";
+import { plausibility, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
 
 /**
@@ -179,18 +179,33 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           );
           break;
         }
+        const wrongScale = plausibility(entry.file, entry.size);
+        if (wrongScale) {
+          errors.push(`line ${step.line}: ${entry.file} looks wrong: ${wrongScale}. Pick another component, or fix the file's scale in SketchUp`);
+          break;
+        }
         const [ew, ns, h] = turnedSize(entry.size, step.rotation);
         const placed = place({ ...step.placement, eastWest: ew, northSouth: ns }, step, refs, built, floorZ, errors);
         if (!placed) break;
         const { rect, z0, where } = placed;
         built.set(step.id, { rect, z0, z1: z0 + h, name: step.name });
         const box: Bounds = { min: [rect.x0, rect.y0, z0], max: [rect.x1, rect.y1, z0 + h] };
+        if (box.max[2] > summary.room.bounds.max[2] + 0.001) {
+          errors.push(`line ${step.line}: ${entry.file} is ${fmt(h)} m tall and would go through the ceiling (room top z ${fmt(summary.room.bounds.max[2])})`);
+          break;
+        }
         add({
           line: step.line,
           title: `PLACE ${step.id} "${step.name}"  (${entry.file})  ${fmtSize([ew, ns, h])} m${step.rotation ? `, turned ${step.rotation}°` : ""}`,
           tool: "placeComponent",
           args: { jobGroup, file: entry.file, name: step.name, tag: step.tag, at: [round(rect.x0), round(rect.y0), round(z0)], rotation: step.rotation },
-          details: [where, `at ${boxText(box)}`, `tag: ${step.tag}`, "a real 3D Warehouse component from your components folder"],
+          details: [
+            where,
+            `at ${boxText(box)}`,
+            `${fmt(ew)} m east-west, ${fmt(ns)} m north-south, top ${fmt(h)} m above the floor (a door is about 2.1 m)`,
+            `tag: ${step.tag}`,
+            "a real 3D Warehouse component from your components folder",
+          ],
           warnings: boxWarnings(box, step.id),
           builds: step.id,
           box: roundBox(box),
