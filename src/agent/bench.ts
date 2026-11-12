@@ -28,6 +28,10 @@ function signature(a: Action): string {
       const ys = pts.map((p) => p[1]);
       return `build x ${cm(Math.min(...xs))}..${cm(Math.max(...xs))} y ${cm(Math.min(...ys))}..${cm(Math.max(...ys))} z ${cm(args.z0 as number)}..${cm(args.z1 as number)}`;
     }
+    case "placeComponent": {
+      const at = args.at as number[];
+      return `place ${String(args.file).toLowerCase()} at ${at.map(cm).join(",")} turned ${args.rotation}`;
+    }
     case "applyMaterial":
       return `paint ${String(args.material).toLowerCase()}`;
     case "setTagVisibility":

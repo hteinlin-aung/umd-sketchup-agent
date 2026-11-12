@@ -79,6 +79,15 @@ module UMDBridge
       v
     end
 
+    # A component file from the components folder: plain name, a few more characters than our own files.
+    def component_file(args, key)
+      v = args[key]
+      unless v.is_a?(String) && v =~ /\A[A-Za-z0-9 _.()&,'+\-]{1,120}\.skp\z/i && !v.include?('..')
+        raise invalid(key, 'must be a plain .skp file name from the components folder (no folders)')
+      end
+      v
+    end
+
     def file_name(args, key, ext)
       v = args[key]
       unless v.is_a?(String) && v =~ /\A[A-Za-z0-9 _.\-]{1,100}\.#{ext}\z/ && !v.include?('..')
@@ -307,6 +316,28 @@ module UMDBridge
       by = a['replacedBy']
       raise Args.invalid('replacedBy', 'must be 1-60 characters') unless by.is_a?(String) && (1..60).cover?(by.strip.length)
       { 'target' => Args.target(a, 'target'), 'replacedBy' => by.strip }
+    end
+
+    def listComponents(a)
+      Args.only!(a, [])
+      {}
+    end
+
+    def componentInfo(a)
+      Args.only!(a, %w[file])
+      { 'file' => Args.component_file(a, 'file') }
+    end
+
+    def placeComponent(a)
+      Args.only!(a, %w[jobGroup file name tag at rotation])
+      {
+        'jobGroup' => Args.name(a, 'jobGroup'),
+        'file' => Args.component_file(a, 'file'),
+        'name' => Args.name(a, 'name'),
+        'tag' => Args.name(a, 'tag'),
+        'at' => Args.vec3(a, 'at'),
+        'rotation' => Args.enum(a, 'rotation', [0, 90, 180, 270], 0)
+      }
     end
 
     def saveCopy(a)

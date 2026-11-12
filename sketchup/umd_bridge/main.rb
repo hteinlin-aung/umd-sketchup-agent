@@ -20,6 +20,7 @@ load File.join(dir, 'tools', 'read_tools.rb')
 load File.join(dir, 'tools', 'build_tools.rb')
 load File.join(dir, 'tools', 'output_tools.rb')
 load File.join(dir, 'tools', 'inspect_tools.rb')
+load File.join(dir, 'tools', 'component_tools.rb')
 
 module UMDBridge
   FOLDERS = %w[in working out done cancelled images].freeze
@@ -44,12 +45,15 @@ module UMDBridge
       'createPrism' => :write,
       'setTag' => :write,
       'setTagVisibility' => :write,
-      'moveToReplaced' => :write
+      'moveToReplaced' => :write,
+      'listComponents' => :read,
+      'componentInfo' => :write, # loads a file for a moment: only on a dev model
+      'placeComponent' => :write
     }
   end
 
   def self.version
-    '0.3.0'
+    '0.4.0'
   end
 
   def self.protocol

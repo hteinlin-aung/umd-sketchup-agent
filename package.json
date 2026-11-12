@@ -10,7 +10,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ruby": "ruby tests/ruby/args_test.rb && ruby tests/ruby/bridge_test.rb && ruby tests/ruby/read_tools_test.rb",
+    "test:ruby": "ruby tests/ruby/args_test.rb && ruby tests/ruby/bridge_test.rb && ruby tests/ruby/read_tools_test.rb && ruby tests/ruby/component_tools_test.rb",
     "typecheck": "tsc --noEmit",
     "ping": "tsx src/cli/ping.ts",
     "smoke": "tsx src/cli/smoke.ts",
@@ -20,7 +20,8 @@
     "levels": "tsx src/cli/levels.ts",
     "summary": "tsx src/cli/summary.ts",
     "agent": "tsx src/cli/agent.ts",
-    "bench": "tsx src/cli/bench.ts"
+    "bench": "tsx src/cli/bench.ts",
+    "components": "tsx src/cli/components.ts"
   },
   "dependencies": {
     "zod": "4.6.7"

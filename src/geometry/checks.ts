@@ -32,14 +32,6 @@ const shrink = (b: Bounds, d: number): Bounds => ({
   max: b.max.map((v) => v - d) as Bounds["max"],
 });
 
-function boxOfAction(args: Record<string, unknown>): Bounds {
-  const pts = args.points as [number, number][];
-  return {
-    min: [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), args.z0 as number],
-    max: [Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1])), args.z1 as number],
-  };
-}
-
 const isPrefix = (a: string[], b: string[]) => a.length < b.length && a.every((n, i) => n === b[i]);
 
 /** The real parts each new block of the plan would cut into. Read-only. */
@@ -61,8 +53,8 @@ export async function findCollisions(client: BridgeClient, plan: Plan, summary: 
       else hiddenTags.add(String(a.args.tag));
       continue;
     }
-    if (a.tool !== "createPrism" || !a.builds) continue;
-    const box = boxOfAction(a.args);
+    if (!a.builds || !a.box) continue; // a new block or a placed component
+    const box = a.box;
     const res = await client.call("findEntities", { within: room, touches: shrink(box, TOUCH), maxDepth: 6, limit: 500 });
     if (!res.ok) throw new Error(`collision check failed: ${res.error.code}: ${res.error.message}`);
 
@@ -115,7 +107,7 @@ async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSumma
 
     let changed = false;
     const steps = current.steps.map((st) => ({ ...st })) as DraftStep[];
-    const builds = steps.filter((s): s is Extract<DraftStep, { op: "build" }> => s.op === "build");
+    const builds = steps.filter((s): s is Extract<DraftStep, { op: "build" | "place" }> => s.op === "build" || s.op === "place");
     const done = new Set<number>(); // brief lines already moved in this attempt
     for (const step of new Set(collisions.map((c) => c.step))) {
       const st = builds.find((s) => s.id === step);
@@ -132,7 +124,7 @@ async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSumma
       for (const member of set) {
         const hits = collisions.filter((c) => c.step === member.id);
         if (hits.length === 0) continue;
-        const box = boxOfAction(plan.actions.find((a) => a.builds === member.id)!.args);
+        const box = plan.actions.find((a) => a.builds === member.id)!.box!;
         up = Math.max(up, ...hits.map((h) => h.bounds.max[axis]! - box.min[axis]! + CLEAR));
         down = Math.max(down, ...hits.map((h) => box.max[axis]! - h.bounds.min[axis]! + CLEAR));
         hitNames.push(...hits.map((h) => `"${h.with}"`));
@@ -201,8 +193,8 @@ export async function verifyRun(
   const lines: string[] = [];
   let ok = true;
 
-  for (const a of plan.actions.filter((x) => x.tool === "createPrism" && x.builds)) {
-    const want = boxOfAction(a.args);
+  for (const a of plan.actions.filter((x) => x.builds && x.box)) {
+    const want = a.box!;
     const id = built[a.builds!];
     const got = id === undefined ? null : await client.call("inspectEntity", { target: { entityId: id }, maxChildren: 0 });
     if (!got || !got.ok) {

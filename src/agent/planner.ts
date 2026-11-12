@@ -1,5 +1,6 @@
 import { runsWhichWay, type RoomSummary } from "../summary/roomSummary";
 import type { Brief, BriefChange } from "./brief";
+import { renderCatalog, type Catalog } from "./catalog";
 import { ChangeAnswer, changeAnswerJsonSchema, type ChangeStep, type Draft, type DraftStep } from "./draft";
 import type { ChatMessage, Llm } from "./llm";
 import { resolveDraft, type Plan, type ResolveOptions } from "./resolve";
@@ -43,6 +44,11 @@ Operations:
       shift: slide it along that side, measured from the item's centre (+ = north/east, - = south/west). 0 = centred.
     placement "onTop" = sitting ON an earlier new block ("on the counter", "a top on ..."):
       {"kind":"onTop","of":"S1","overhang":0.05}   height is then the thickness.
+- {"op":"place","id":"S2","component":"<file name from COMPONENTS>","name":"...","placement":{"kind":"beside","anchor":"R1","side":"east","gap":0.5,"shift":0},"rotation":0,"base":0,"tag":"..."}
+    a REAL 3D Warehouse component from the COMPONENTS list (furniture, plants). Use it whenever the change
+    asks for a component, a real piece, a plant, a tree or named furniture; never draw those as "build" blocks.
+    Its size comes from the list, so give no eastWest/northSouth. rotation: 0, 90, 180 or 270 (90 and 270
+    swap its east-west and north-south sizes). Ids share the S1, S2 ... numbering with build steps.
 - {"op":"hideTag","tag":"..."}   {"op":"showTag","tag":"..."}
 - {"op":"screenshot"}   (the program frames the view)
 - {"op":"save","fileName":"..."}
@@ -78,7 +84,11 @@ Example 4, ALONG an item. Change: "5. A bench along the west face of the wardrob
 The summary says R7 "runs north-south", so the bench's length (4.0) is northSouth and its depth (0.45) is eastWest:
 {"type":"steps","steps":[{"op":"build","id":"S7","name":"Bench","placement":{"kind":"beside","anchor":"R7","side":"west","gap":0,"eastWest":0.45,"northSouth":4.0,"shift":0},"height":0.45,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
 
-Example 5. Change: "1. Take out the old sofa (R2)." Answer:
+Example 5, a COMPONENT. Change: "6. Place the potted fig component 0.4 m south of the window wall (R4), shifted 1.0 m east."
+The COMPONENTS list has "3DW_Fig tree potted.skp". New build ids: S8. Answer:
+{"type":"steps","steps":[{"op":"place","id":"S8","component":"3DW_Fig tree potted.skp","name":"Fig tree","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.4,"shift":1.0},"rotation":0,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
+
+Example 6. Change: "1. Take out the old sofa (R2)." Answer:
 {"type":"steps","steps":[{"op":"replace","target":"R2"}],"reason":""}`;
 
 export type ChangeOutcome = {
@@ -94,6 +104,14 @@ export type PlanResult = { draft: Draft; answers: { line: number; text: string }
 
 /** "on the counter", "on top of", "a top" (but not "on the floor" / "on the east side"). */
 const ON_SOMETHING = /\bon top of\b|\bon the (?!floor\b|ground\b|east\b|west\b|north\b|south\b|left\b|right\b|side\b|tag\b)\w+|\btop\b/i;
+
+/** Words that mean "a real component, not a block". */
+const COMPONENT_WORDS = /\bcomponent\b|3D ?Warehouse|\b3DW_/i;
+
+/** A step that makes something new (a block or a placed component), with its id and name. */
+function isNew(s: DraftStep): s is Extract<DraftStep, { op: "build" | "place" }> {
+  return s.op === "build" || s.op === "place";
+}
 
 const VAGUE_REASON = /coordinat|position|exact|align|camera|view|orientation|finali[sz]|not specified|unknown location/i;
 
@@ -152,7 +170,7 @@ export async function planBrief(
     const firstId = nextBuildNumber(steps);
     const messages: ChatMessage[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: changeQuestion(brief, change, summaryText, steps, firstId) },
+      { role: "user", content: changeQuestion(brief, change, summaryText, steps, firstId, opts.catalog) },
     ];
     let accepted: ChangeAnswer | null = null;
     let problems: string[] = [];
@@ -201,10 +219,11 @@ export async function planBrief(
   return { draft: { steps, notDone }, answers, outcomes };
 }
 
-function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, done: DraftStep[], firstId: number): string {
-  const builds = done.filter((s) => s.op === "build").map((s) => `${(s as { id: string }).id} = "${(s as { name: string }).name}" (change ${s.line})`);
+function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, done: DraftStep[], firstId: number, catalog?: Catalog): string {
+  const builds = done.filter(isNew).map((s) => `${s.id} = "${s.name}" (change ${s.line})`);
   return [
     `ROOM SUMMARY:\n${summaryText}`,
+    ...(catalog ? [renderCatalog(catalog)] : []),
     `BRIEF (all of it, for context and rules):\n${brief.text.trim()}`,
     builds.length ? `Already planned blocks: ${builds.join("; ")}` : "Nothing built yet.",
     EXAMPLE,
@@ -278,8 +297,8 @@ export function checkAnswer(
         // The code knows which face points into the room, so give the answer rather than a hint.
         // (Windows 2026-11-12: told to "check side and shift", qwen3:8b kept side "east" for the
         // EAST GLASS WALL - it reads the item's NAME - and both kerbs landed outside the building.)
-        const step = answer.steps.find((st) => st.op === "build" && st.id === a.builds);
-        const anchor = step?.op === "build" && step.placement.kind === "beside"
+        const step = answer.steps.find((st) => (st.op === "build" || st.op === "place") && st.id === a.builds);
+        const anchor = (step?.op === "build" || step?.op === "place") && step.placement.kind === "beside"
           ? summary.items.find((it) => it.ref === (step.placement as { anchor: string }).anchor)
           : undefined;
         const inside = anchor ? insideFace(anchor, summary) : null;
@@ -318,15 +337,25 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
   const problems: string[] = [];
   const has = (op: ChangeStep["op"]) => answer.steps.some((st) => st.op === op);
 
-  if (/\d(\.\d+)?\s*m\b/.test(t) && answer.type === "steps" && !has("build")) {
+  const wantsComponent = COMPONENT_WORDS.test(t);
+  if (/\d(\.\d+)?\s*m\b/.test(t) && answer.type === "steps" && !has("build") && !has("place") && !/\bplace\b/i.test(t)) {
     problems.push(`change ${change.line} gives sizes in metres for something new, so it needs a "build" step`);
   }
+  if (wantsComponent && answer.type === "steps" && !has("place")) {
+    problems.push(`change ${change.line} asks for a real component: use a "place" step with a file from the COMPONENTS list, not a block`);
+  }
+  if (has("place") && !wantsComponent && !/\bplace\b/i.test(t)) {
+    problems.push(`change ${change.line} doesn't ask for a component; don't place one`);
+  }
   const sizes = /\d(\.\d+)?\s*m\b/.test(t);
-  if (has("build") && !sizes && !/\b(add|new|build|top)\b/i.test(t)) {
-    problems.push(`change ${change.line} doesn't ask to add anything new, so it must not build a block`);
+  if ((has("build") || has("place")) && !sizes && !/\b(add|new|build|top|place)\b/i.test(t)) {
+    problems.push(`change ${change.line} doesn't ask to add anything new, so it must not build or place anything`);
   }
   const replaced = new Set([...done, ...answer.steps].filter((st) => st.op === "replace").map((st) => (st as { target: string }).target));
   for (const st of answer.steps) {
+    if (st.op === "place" && replaced.has(st.placement.anchor)) {
+      problems.push(`${st.id} is placed beside ${st.placement.anchor}, which this plan takes out; choose the item the change names`);
+    }
     if (st.op !== "build") continue;
     if (st.placement.kind === "beside" && replaced.has(st.placement.anchor)) {
       problems.push(`${st.id} is placed beside ${st.placement.anchor}, which this plan takes out; choose the item the change names`);
@@ -426,8 +455,9 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
 function renumber(answer: ChangeAnswer, firstId: number): ChangeAnswer {
   const map = new Map<string, string>();
   let next = firstId;
-  for (const st of answer.steps) if (st.op === "build" && !map.has(st.id)) map.set(st.id, `S${next++}`);
+  for (const st of answer.steps) if ((st.op === "build" || st.op === "place") && !map.has(st.id)) map.set(st.id, `S${next++}`);
   const steps = answer.steps.map((st): ChangeStep => {
+    if (st.op === "place") return { ...st, id: map.get(st.id)! };
     if (st.op !== "build") return st;
     const placement = st.placement.kind === "onTop" && map.has(st.placement.of) && st.placement.of !== st.id
       ? { ...st.placement, of: map.get(st.placement.of)! }
@@ -468,7 +498,7 @@ function clearGap(a: number[][], b: number[][]): number {
 }
 
 function nextBuildNumber(steps: DraftStep[]): number {
-  return steps.filter((s) => s.op === "build").length + 1;
+  return steps.filter(isNew).length + 1;
 }
 
 const short = (t: string) => (t.length > 90 ? `${t.slice(0, 90)}…` : t).replace(/\*\*/g, "");

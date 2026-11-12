@@ -56,19 +56,39 @@ const Build = z.strictObject({
   material: Material.optional(),
 });
 const Replace = z.strictObject({ op: z.literal("replace"), target: Ref });
+
+/** Where a component goes: like "beside", but its size comes from the catalog, not from the model. */
+export const PlacePlacement = z.strictObject({
+  kind: z.literal("beside"),
+  anchor: Ref,
+  side: Side,
+  gap: Metres(0, 20),
+  shift: Metres(-30, 30).default(0),
+});
+const Place = z.strictObject({
+  op: z.literal("place"),
+  id: StepId,
+  component: z.string().trim().min(5).max(124), // a file name from the COMPONENTS list
+  name: Label,
+  placement: PlacePlacement,
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).default(0),
+  base: Metres(0, 4).default(0),
+  tag: Label,
+});
 const HideTag = z.strictObject({ op: z.literal("hideTag"), tag: Label });
 const ShowTag = z.strictObject({ op: z.literal("showTag"), tag: Label });
 const Screenshot = z.strictObject({ op: z.literal("screenshot") });
 const Save = z.strictObject({ op: z.literal("save"), fileName: z.string().trim().min(1).max(80) });
 
 /** One step as the model writes it for ONE brief change (the code adds the line number). */
-export const ChangeStep = z.discriminatedUnion("op", [Replace, Build, HideTag, ShowTag, Screenshot, Save]);
+export const ChangeStep = z.discriminatedUnion("op", [Replace, Build, Place, HideTag, ShowTag, Screenshot, Save]);
 export type ChangeStep = z.infer<typeof ChangeStep>;
 
 /** A step in the whole draft: the same, plus the brief line it comes from. */
 export const DraftStep = z.discriminatedUnion("op", [
   Replace.extend({ line: Line }),
   Build.extend({ line: Line }),
+  Place.extend({ line: Line }),
   HideTag.extend({ line: Line }),
   ShowTag.extend({ line: Line }),
   Screenshot.extend({ line: Line }),

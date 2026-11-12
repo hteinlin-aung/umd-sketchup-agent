@@ -69,7 +69,8 @@ export async function executePlan(
       if (typeof data.jobGroupId === "number") jobGroupId = data.jobGroupId;
       const wb = data.worldBounds as { min: number[]; max: number[] } | undefined;
       const vol = typeof data.volumeM3 === "number" ? `, volume ${data.volumeM3.toFixed(4)} m³` : "";
-      message = wb ? `built, measured ${wb.min.map((v, i) => (wb.max[i]! - v).toFixed(3)).join(" x ")} m${vol}` : "built";
+      const what = a.tool === "placeComponent" ? `placed ${String(data.definitionName)}` : "built";
+      message = wb ? `${what}, measured ${wb.min.map((v, i) => (wb.max[i]! - v).toFixed(3)).join(" x ")} m${vol}` : what;
     } else if (a.tool === "applyMaterial") {
       message = `${data.facesChecked} faces painted${data.created ? " (material created)" : ""}`;
     } else if (a.tool === "moveToReplaced") {

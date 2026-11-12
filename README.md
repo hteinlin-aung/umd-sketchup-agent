@@ -103,6 +103,7 @@ npm run agent -- instructions/1F_reception.md "1F RECEPTION" --dry   # ask Ollam
 npm run agent -- instructions/1F_reception.md "1F RECEPTION"         # plan, then ask y/n, run, save a copy
 npm run agent -- <brief> "<room>" --draft runs/agent_<time>/draft.json  # run a draft you already reviewed
 npm run bench -- instructions/1F_reception.md "1F RECEPTION" --runs 3 --models qwen3:8b,gpt-oss:20b  # compare models (plans only)
+npm run components                   # your components folder with real sizes (measures new files; dev model)
 npm run tool -- findEntities @find.json   # run any one tool by hand (arguments from a JSON file)
 ```
 

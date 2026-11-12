@@ -9,6 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { catalogCache, loadCatalog } from "../agent/catalog";
 import { executePlan, renderReport } from "../agent/execute";
 import { Draft } from "../agent/draft";
 import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
@@ -62,7 +63,15 @@ async function main(): Promise<number> {
   writeFileSync(`${dir}/summary.md`, summaryText + "\n");
   console.log(`  ${summary.items.length} items, floor z ${summary.floor.z}`);
 
-  const resolve = (d: Draft) => resolveDraft(d, summary, { runId, briefName });
+  // Your components (real 3D Warehouse pieces) with their sizes, so "place" steps can be planned.
+  const mock = args.includes("--mock");
+  const { catalog, problems: catalogProblems } = await loadCatalog(client, {
+    canMeasure: !dry && !/master/i.test(ping.data.modelTitle),
+    cachePath: catalogCache(mock),
+    onMeasure: (file, i, n) => console.log(`  measuring component ${i}/${n}: ${file}`),
+  });
+  console.log(`  ${catalog.size} components available${catalogProblems.length ? ` (${catalogProblems.length} not usable, see: npm run components)` : ""}`);
+  const resolve = (d: Draft) => resolveDraft(d, summary, { runId, briefName, catalog });
   let draft: Draft;
   let modelName = "(hand-written draft)";
   if (draftFile) {
@@ -74,7 +83,7 @@ async function main(): Promise<number> {
     const started = Date.now();
     // Start cold, the same condition the benchmark measures (Ollama's prompt cache changes answers). --warm skips it.
     if (!args.includes("--warm")) await ollamaUnload(config.ollamaUrl, config.ollamaModel);
-    const out = await planBrief(ollamaLlm(config.ollamaUrl, config.ollamaModel), brief, summary, summaryText, { runId, briefName }, (o) =>
+    const out = await planBrief(ollamaLlm(config.ollamaUrl, config.ollamaModel), brief, summary, summaryText, { runId, briefName, catalog }, (o) =>
       console.log(
         `  change ${o.line}: ${o.type === "failed" ? `FAILED after ${o.tries} tries (${o.problems[0]})` : o.type === "steps" ? `${o.steps} step${o.steps === 1 ? "" : "s"}` : o.type}` +
           `${o.tries > 1 && o.type !== "failed" ? " (2nd try)" : ""}, ${o.seconds} s`,

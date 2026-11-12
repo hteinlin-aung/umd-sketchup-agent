@@ -1,5 +1,6 @@
 import { TOOLS, type Bounds, type ToolName, type Vec2 } from "../protocol/tools";
 import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
+import { turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
 
 /**
@@ -20,6 +21,7 @@ export type Action = {
   details: string[];
   warnings: string[];
   builds?: string; // step id this action creates (its entityId is needed later)
+  box?: Bounds; // the planned world box of what this action builds or places (for the checks)
   targetsStep?: string; // fill args.target with the entityId of this step when running
   zoomToJobGroup?: boolean; // screenshot: frame the new shapes instead of the whole room, once they exist
 };
@@ -37,7 +39,7 @@ export type Plan = {
 type Rect = { x0: number; y0: number; x1: number; y1: number };
 type Built = { rect: Rect; z0: number; z1: number; name: string };
 
-export type ResolveOptions = { runId: string; briefName: string };
+export type ResolveOptions = { runId: string; briefName: string; catalog?: Catalog };
 
 export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOptions): Plan {
   const refs = new Map(summary.items.map((it) => [it.ref, it]));
@@ -48,6 +50,25 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   const floorZ = summary.floor.z;
   const jobGroup = `AGENT ${opts.briefName} ${opts.runId}`;
   let savedAt: number | null = null;
+
+  /** Things to look at for a new box: outside the room, above it, overlapping outer boxes or other new blocks. */
+  const boxWarnings = (box: Bounds, id: string): string[] => {
+    const warnings: string[] = [];
+    const room = summary.room.bounds;
+    if (box.min[0] < room.min[0] - 0.001 || box.max[0] > room.max[0] + 0.001 || box.min[1] < room.min[1] - 0.001 || box.max[1] > room.max[1] + 0.001) {
+      warnings.push("it reaches outside the room's box");
+    }
+    if (box.max[2] > room.max[2] + 0.001) warnings.push(`its top (z ${fmt(box.max[2])}) is above the room's box`);
+    for (const it of summary.items) {
+      if (it.visible && overlaps(box, it.bounds)) warnings.push(`its box overlaps ${it.ref} "${short(it.name)}" (boxes only: check the screenshot)`);
+    }
+    for (const [other, b] of built) {
+      if (other === id) continue;
+      const ob: Bounds = { min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] };
+      if (overlaps(box, ob)) warnings.push(`it overlaps ${other} "${b.name}" from this plan`);
+    }
+    return warnings;
+  };
 
   const add = (a: Omit<Action, "n" | "warnings"> & { warnings?: string[] }) => {
     actions.push({ warnings: [], ...a, n: actions.length + 1 });
@@ -112,22 +133,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
         const box: Bounds = { min: [rect.x0, rect.y0, z0], max: [rect.x1, rect.y1, z1] };
         const size: [number, number, number] = [rect.x1 - rect.x0, rect.y1 - rect.y0, step.height];
 
-        const warnings: string[] = [];
-        const room = summary.room.bounds;
-        if (rect.x0 < room.min[0] - 0.001 || rect.x1 > room.max[0] + 0.001 || rect.y0 < room.min[1] - 0.001 || rect.y1 > room.max[1] + 0.001) {
-          warnings.push("it reaches outside the room's box");
-        }
-        if (z1 > room.max[2] + 0.001) warnings.push(`its top (z ${fmt(z1)}) is above the room's box`);
-        for (const it of summary.items) {
-          if (it.visible && overlaps(box, it.bounds)) {
-            warnings.push(`its box overlaps ${it.ref} "${short(it.name)}" (boxes only: check the screenshot)`);
-          }
-        }
-        for (const [id, other] of built) {
-          if (id === step.id) continue;
-          const ob: Bounds = { min: [other.rect.x0, other.rect.y0, other.z0], max: [other.rect.x1, other.rect.y1, other.z1] };
-          if (overlaps(box, ob)) warnings.push(`it overlaps ${id} "${other.name}" from this plan`);
-        }
+        const warnings = boxWarnings(box, step.id);
 
         add({
           line: step.line,
@@ -144,6 +150,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           details: [where, `at ${boxText(box)}`, `tag: ${step.tag}`],
           warnings,
           builds: step.id,
+          box: roundBox(box),
         });
         if (step.material) {
           add({
@@ -155,6 +162,39 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
             targetsStep: step.id,
           });
         }
+        break;
+      }
+
+      case "place": {
+        if (built.has(step.id)) {
+          errors.push(`line ${step.line}: step id ${step.id} is used twice`);
+          break;
+        }
+        const entry = findComponent(opts.catalog, step.component);
+        if (!entry) {
+          errors.push(
+            opts.catalog?.size
+              ? `line ${step.line}: "${step.component}" is not in the components folder; use a file name from the COMPONENTS list`
+              : `line ${step.line}: no components catalog (run: npm run components)`,
+          );
+          break;
+        }
+        const [ew, ns, h] = turnedSize(entry.size, step.rotation);
+        const placed = place({ ...step.placement, eastWest: ew, northSouth: ns }, step, refs, built, floorZ, errors);
+        if (!placed) break;
+        const { rect, z0, where } = placed;
+        built.set(step.id, { rect, z0, z1: z0 + h, name: step.name });
+        const box: Bounds = { min: [rect.x0, rect.y0, z0], max: [rect.x1, rect.y1, z0 + h] };
+        add({
+          line: step.line,
+          title: `PLACE ${step.id} "${step.name}"  (${entry.file})  ${fmtSize([ew, ns, h])} m${step.rotation ? `, turned ${step.rotation}°` : ""}`,
+          tool: "placeComponent",
+          args: { jobGroup, file: entry.file, name: step.name, tag: step.tag, at: [round(rect.x0), round(rect.y0), round(z0)], rotation: step.rotation },
+          details: [where, `at ${boxText(box)}`, `tag: ${step.tag}`, "a real 3D Warehouse component from your components folder"],
+          warnings: boxWarnings(box, step.id),
+          builds: step.id,
+          box: roundBox(box),
+        });
         break;
       }
 
@@ -213,9 +253,18 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   return { runId: opts.runId, jobGroup, floorZ, modelPath: summary.modelPath, actions, errors, notDone: draft.notDone };
 }
 
+/** The catalog entry for a file name; small models sometimes drop ".skp" or change the case. */
+function findComponent(catalog: Catalog | undefined, name: string): CatalogEntry | undefined {
+  if (!catalog) return undefined;
+  const exact = catalog.get(name);
+  if (exact) return exact;
+  const want = name.trim().toLowerCase().replace(/\.skp$/, "");
+  return [...catalog.values()].find((c) => c.file.toLowerCase().replace(/\.skp$/, "") === want);
+}
+
 function place(
   p: Placement,
-  step: Extract<DraftStep, { op: "build" }>,
+  step: { line: number; id: string; base: number },
   refs: Map<string, SummaryItem>,
   built: Map<string, Built>,
   floorZ: number,
@@ -302,6 +351,7 @@ export function renderPlan(plan: Plan): string {
 }
 
 const round = (v: number) => Math.round(v * 1000) / 1000;
+const roundBox = (b: Bounds): Bounds => ({ min: b.min.map(round) as Bounds["min"], max: b.max.map(round) as Bounds["max"] });
 const fmt = (v: number) => round(v).toFixed(3).replace(/\.?0+$/, "");
 const fmtSize = (s: number[]) => s.map(fmt).join(" x ");
 const short = (name: string) => (name.length > 40 ? `${name.slice(0, 40)}…` : name);

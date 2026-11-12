@@ -50,6 +50,9 @@ class ToolError extends Error {
   }
 }
 
+/** Same limit as the bridge: bigger component files make SketchUp slow to load (yours go up to 28 MB). */
+export const COMPONENT_MAX_BYTES = 50_000_000;
+
 const BOX_NORMALS: Vec3[] = [
   [0, 0, 1],
   [0, 0, -1],
@@ -75,6 +78,14 @@ export class MockSketchUp implements Transport {
   readonly images = new Set<string>();
   private injected: { tool: string; code: ErrorCode; message: string } | null = null;
   readonly received: Command[] = [];
+  /** The fake components folder: file -> bytes and size in metres (x, y, z at rotation 0). */
+  readonly components = new Map<string, { bytes: number; size: Vec3 }>([
+    ["3DW_Mercy S curved boucle sofa.skp", { bytes: 4_812_000, size: [1.7, 3.0, 0.62] }],
+    ["3DW_Banyan tree.skp", { bytes: 28_400_000, size: [3.2, 3.0, 4.6] }],
+    ["3DW_Money tree potted.skp", { bytes: 2_100_000, size: [0.6, 0.6, 1.6] }],
+    ["3DW_Round marble coffee table.skp", { bytes: 900_000, size: [0.9, 0.9, 0.42] }],
+    ["3DW_Huge test model.skp", { bytes: 61_000_000, size: [1, 1, 1] }],
+  ]);
 
   constructor(opts: MockOptions = {}) {
     this.modelPath = opts.modelPath ?? "E:/Cowork_Field/Thesis_SketchUp/dev/UMD_DEV_1F.skp";
@@ -246,6 +257,12 @@ export class MockSketchUp implements Transport {
         return { data: this.setTagVisibility(args as ArgsOut<"setTagVisibility">), modified: true, warnings: [] };
       case "moveToReplaced":
         return { data: this.moveToReplaced(args as ArgsOut<"moveToReplaced">), modified: true, warnings: [] };
+      case "listComponents":
+        return { data: this.listComponents(), modified: false, warnings: [] };
+      case "componentInfo":
+        return { data: this.componentInfo(args as ArgsOut<"componentInfo">), modified: false, warnings: [] };
+      case "placeComponent":
+        return { data: this.placeComponent(args as ArgsOut<"placeComponent">), modified: true, warnings: [] };
     }
   }
 
@@ -506,6 +523,37 @@ export class MockSketchUp implements Transport {
       volumeM3: round6(area * (a.z1 - a.z0)),
       faceCount: prism.faces.length,
     };
+  }
+
+  private listComponents() {
+    const files = [...this.components].map(([file, c]) => ({ file, bytes: c.bytes })).sort((a, b) => a.file.localeCompare(b.file));
+    return { folder: "E:/Cowork_Field/Thesis_SketchUp/components", files };
+  }
+
+  private component(file: string) {
+    const c = this.components.get(file);
+    if (!c) throw new ToolError("NOT_FOUND", `no "${file}" in the components folder`);
+    if (c.bytes > COMPONENT_MAX_BYTES) {
+      throw new ToolError("INVALID_ARGS", `"${file}" is ${(c.bytes / 1e6).toFixed(0)} MB; the limit is ${COMPONENT_MAX_BYTES / 1e6} MB`);
+    }
+    return c;
+  }
+
+  private componentInfo(a: ArgsOut<"componentInfo">) {
+    const c = this.component(a.file);
+    return { file: a.file, bytes: c.bytes, definitionName: a.file.replace(/\.skp$/i, ""), size: c.size };
+  }
+
+  private placeComponent(a: ArgsOut<"placeComponent">) {
+    const c = this.component(a.file);
+    const [sx, sy, sz] = a.rotation === 90 || a.rotation === 270 ? [c.size[1], c.size[0], c.size[2]] : c.size;
+    const bounds: Bounds = { min: a.at, max: [a.at[0] + sx, a.at[1] + sy, a.at[2] + sz] };
+    const job = this.jobGroup(a.jobGroup, bounds);
+    if (!this.tags.has(a.tag)) this.tags.set(a.tag, true);
+    const definitionName = a.file.replace(/\.skp$/i, "");
+    const inst = this.add({ type: "ComponentInstance", name: a.name, definitionName, tag: a.tag, parentId: job.entityId, bounds });
+    job.bounds = unionBounds(this.children(job.entityId).map((ch) => ch.bounds));
+    return { entityId: inst.entityId, persistentId: inst.persistentId, jobGroupId: job.entityId, definitionName, worldBounds: bounds };
   }
 
   private setTag(a: ArgsOut<"setTag">) {

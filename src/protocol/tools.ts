@@ -5,6 +5,7 @@ import { z } from "zod";
  * Week 1: ping, getModelInfo, createBox, applyMaterial, captureView, saveCopy.
  * Week 2: findEntities, inspectEntity, measure (read-only);
  *         createPrism, setTag, setTagVisibility, moveToReplaced (change the model).
+ * Week 3: listComponents (read the components folder), componentInfo (measure one), placeComponent.
  * All lengths are in METRES, in SketchUp world coordinates (Z up).
  * The Ruby side converts to inches; nothing else in TypeScript should.
  *
@@ -357,6 +358,47 @@ export function replacedTagName(replacedBy: string): string {
   return `zz_REPLACED by ${replacedBy.trim()} (hidden)`;
 }
 
+// ---------- components (Week 3) ----------
+// Real 3D Warehouse pieces from ONE folder on the Windows PC: <the queue folder's parent>/components
+// (E:/Cowork_Field/Thesis_SketchUp/components). Only a plain file name is ever sent, never a path.
+
+/** A component file in that folder. 3D Warehouse names use a few more characters than our own files. */
+export const ComponentFile = z
+  .string()
+  .regex(/^[A-Za-z0-9 _.()&,'+-]{1,120}\.skp$/i, "must be a plain .skp file name from the components folder (no folders)")
+  .refine((s) => !s.includes(".."), "must not contain '..'");
+
+export const ListComponentsArgs = z.strictObject({});
+export const ListComponentsData = z.object({
+  folder: z.string(),
+  files: z.array(z.object({ file: z.string(), bytes: z.number().int() })),
+});
+
+/** Loads the file just long enough to measure it, then removes it again: the model ends up unchanged. */
+export const ComponentInfoArgs = z.strictObject({ file: ComponentFile });
+export const ComponentInfoData = z.object({
+  file: z.string(),
+  bytes: z.number().int(),
+  definitionName: z.string(),
+  size: Vec3, // metres, x / y / z of the component as it comes (rotation 0)
+});
+
+export const Rotation = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
+
+export const PlaceComponentArgs = z.strictObject({
+  jobGroup: Name, // same group as the agent's other new blocks
+  file: ComponentFile,
+  name: Name,
+  tag: Name,
+  at: Vec3, // where the component's box MIN corner (south-west, bottom) goes, after rotating
+  rotation: Rotation.default(0), // degrees, anticlockwise seen from above
+});
+export const PlaceComponentData = EntityRef.extend({
+  jobGroupId: z.number().int(),
+  definitionName: z.string(),
+  worldBounds: Bounds, // measured after placing
+});
+
 // ---------- the registry ----------
 
 /**
@@ -380,6 +422,9 @@ export const TOOLS = {
   setTag: { args: SetTagArgs, data: SetTagData, kind: "write", changesModel: true },
   setTagVisibility: { args: SetTagVisibilityArgs, data: SetTagVisibilityData, kind: "write", changesModel: true },
   moveToReplaced: { args: MoveToReplacedArgs, data: MoveToReplacedData, kind: "write", changesModel: true },
+  listComponents: { args: ListComponentsArgs, data: ListComponentsData, kind: "read", changesModel: false },
+  componentInfo: { args: ComponentInfoArgs, data: ComponentInfoData, kind: "write", changesModel: false },
+  placeComponent: { args: PlaceComponentArgs, data: PlaceComponentData, kind: "write", changesModel: true },
 } as const satisfies Record<string, { args: z.ZodType; data: z.ZodType; kind: ToolKind; changesModel: boolean }>;
 
 export type ToolName = keyof typeof TOOLS;

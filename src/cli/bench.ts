@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { renderBench, benchOnce, type BenchRun } from "../agent/bench";
 import { parseBrief } from "../agent/brief";
+import { catalogCache, loadCatalog, type Catalog } from "../agent/catalog";
 import { Draft } from "../agent/draft";
 import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
 import { BridgeClient } from "../bridge/client";
@@ -42,7 +43,7 @@ async function main(): Promise<number> {
   const reference = Draft.parse(JSON.parse(readFileSync(refFile, "utf8")));
   const brief = parseBrief(readFileSync(briefFile, "utf8"));
   const runId = smokeRunId();
-  const opts = { runId, briefName: basename(briefFile).replace(/\.md$/i, "") };
+  const opts: { runId: string; briefName: string; catalog?: Catalog } = { runId, briefName: basename(briefFile).replace(/\.md$/i, "") };
   const dir = `runs/bench_${runId}`;
   mkdirSync(dir, { recursive: true });
 
@@ -51,6 +52,7 @@ async function main(): Promise<number> {
   const summary = await summarizeRoom(client, { persistentId: room.persistentId });
   const summaryText = renderSummary(summary);
   writeFileSync(`${dir}/summary.md`, summaryText + "\n");
+  opts.catalog = (await loadCatalog(client, { canMeasure: false, cachePath: catalogCache(args.includes("--mock")) })).catalog;
   console.log(
     `room read: ${summary.items.length} items. ${models.length} model(s) x ${runs} runs, ${brief.changes.length} changes each, ` +
       `${args.includes("--warm") ? "WARM (model kept loaded)" : "each run cold (model unloaded first)"}.\n`,
@@ -71,9 +73,11 @@ async function main(): Promise<number> {
   }
 
   const table = renderBench(results);
-  writeFileSync(`${dir}/results.md`, `# Benchmark ${runId}\n\nBrief: ${briefFile} · reference: ${refFile}\n\n${table}\n`);
-  writeFileSync(`${dir}/results.json`, JSON.stringify(results.map(({ draft: _d, ...r }) => r), null, 2));
-  console.log(`\n${table}\n\nSaved in ${dir}/`);
+  // Say how it was measured: warm and cold runs give different answers, so they must never be compared.
+  const mode = args.includes("--warm") ? "warm (model kept loaded between runs)" : "cold (model unloaded before every run)";
+  writeFileSync(`${dir}/results.md`, `# Benchmark ${runId}\n\nBrief: ${briefFile} · reference: ${refFile} · runs: **${mode}**\n\n${table}\n`);
+  writeFileSync(`${dir}/results.json`, JSON.stringify({ mode, runs: results.map(({ draft: _d, ...r }) => r) }, null, 2));
+  console.log(`\nRuns: ${mode}\n${table}\n\nSaved in ${dir}/`);
   return 0;
 }
 
