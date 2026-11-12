@@ -243,3 +243,23 @@ describe("the planner and components", () => {
     expect(checkAnswer(answer([wrong]), change, [], 1, summary, opts).problems.join()).toMatch(/is not in the components folder; use a file name from the COMPONENTS list/);
   });
 });
+
+describe("scaling a file that is drawn at the wrong size (Windows 2026-11-12)", () => {
+  it("lifts a too-small piece only to the bottom of the range, not to the typical size", () => {
+    // A fittonia really is a 10 cm plant. It was being blown up x12 to 1.2 m and placed as a
+    // 3.5 m wide "money tree". The smallest correction that makes it plausible is the right one.
+    const fit = fitComponent("3DW_fittonia_SashaAlonso.skp", [0.29, 0.27, 0.1]);
+    expect(fit!.size[2]).toBeCloseTo(0.15, 3);
+    expect(fit!.scale).toBeLessThan(2);
+  });
+
+  it("still cuts a too-big piece down to the typical size", () => {
+    const fit = fitComponent("3DW_coffee_table_marble_round.skp", [3.96, 3.92, 2.64]);
+    expect(fit!.size[2]).toBeCloseTo(0.42, 3);
+  });
+
+  it("does not treat a basket of yoga mats as a mat", () => {
+    expect(plausibility("3DW_yoga_mats_basket_carolineruss.skp", [0.66, 0.58, 0.79])).toBeNull();
+    expect(plausibility("3DW_yoga_mat_WhoR.skp", [1.83, 0.8, 0.14])).toBeNull();
+  });
+});

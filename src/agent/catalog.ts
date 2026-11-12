@@ -93,7 +93,7 @@ export const TYPICAL: Rule[] = [
   { words: /sofa|couch/i, what: "a sofa", dim: "height", min: 0.55, max: 1.1, target: 0.8 },
   { words: /bench/i, what: "a bench", dim: "height", min: 0.35, max: 1.0, target: 0.45 },
   { words: /easel/i, what: "an easel", dim: "height", min: 1.4, max: 2.3, target: 1.8 },
-  { words: /yoga|\bmat\b/i, what: "a mat", dim: "across", min: 1.5, max: 2.3, target: 1.83 },
+  { words: /(?:yoga|\bmat\b)(?!.*basket)/i, what: "a mat", dim: "across", min: 1.5, max: 2.3, target: 1.83 },
   { words: /basin|sink/i, what: "a basin", dim: "across", min: 0.35, max: 1.2, target: 0.6 },
   { words: /chandelier|lamp|pendant/i, what: "a lamp", dim: "across", min: 0.25, max: 2.0, target: 0.9 },
   { words: /fittonia|maranta|potted|\bpot\b|money.?tree|fern/i, what: "a pot plant", dim: "height", min: 0.15, max: 2.5, target: 1.2 },
@@ -125,8 +125,12 @@ export function fitComponent(file: string, size: Vec3, opts: { roomHeight?: numb
     if (rule) {
       const v = rule.dim === "height" ? z : across;
       if (v < rule.min || v > rule.max) {
-        scale = rule.target / v;
-        reason = `${rule.what} ${f(v)} m ${rule.dim === "height" ? "high" : "across"} is outside the usual ${f(rule.min)}-${f(rule.max)} m, so it is scaled to ${f(rule.target)} m`;
+        // Too BIG is nearly always wrong units, so go to the typical size. Too SMALL is usually a genuinely
+        // small piece, so only lift it to the bottom of the range. (Windows 2026-11-12: a 0.1 m fittonia -
+        // a real 10 cm plant - was blown up x12 to 1.2 m and placed as a 3.5 m wide "money tree".)
+        const to = v > rule.max ? rule.target : rule.min;
+        scale = to / v;
+        reason = `${rule.what} ${f(v)} m ${rule.dim === "height" ? "high" : "across"} is outside the usual ${f(rule.min)}-${f(rule.max)} m, so it is scaled to ${f(to)} m`;
       }
     } else if (across > ANY_MAX_PLAN) {
       return null;
