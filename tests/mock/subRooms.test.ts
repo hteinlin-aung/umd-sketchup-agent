@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Draft, type DraftStep } from "../../src/agent/draft";
 import { parseBrief } from "../../src/agent/brief";
 import type { Llm } from "../../src/agent/llm";
-import { checkAnswer, namesToRefs, planBrief } from "../../src/agent/planner";
+import { checkAnswer, fillTag, namesToRefs, newPiecesTag, planBrief } from "../../src/agent/planner";
 import { resolveDraft } from "../../src/agent/resolve";
 import { sameCollisions } from "../../src/geometry/checks";
 import { mentions, renderSummary } from "../../src/summary/roomSummary";
@@ -159,6 +159,14 @@ describe("the planner and sub-rooms", () => {
     };
     await planBrief(llm, parseBrief(`# t\n\n## Changes for now\n\n1. ${change.text}\n`), t124(), "summary", OPTS);
     expect(questions[0]).toMatch(/Sub-rooms named in this change: "Therapy 1" = V2\./);
+  });
+
+  it("puts new pieces on the brief's tag, even before the Tags change (run 052732: the shelf got the example's tag)", () => {
+    const brief = parseBrief("# t\n\n## Changes for now\n\n1. A shelf 2.0 m long.\n\n2. **Tags.** Put everything new on the tag `3F TP - Furniture (AGENT)`.\n");
+    expect(newPiecesTag(brief)).toBe("3F TP - Furniture (AGENT)");
+    const out = fillTag({ steps: [{ op: "build", tag: "Furniture (AGENT)" }, { op: "hideTag", tag: "x" }] }, brief) as { steps: { tag: string }[] };
+    expect(out.steps.map((st) => st.tag)).toEqual(["3F TP - Furniture (AGENT)", "x"]);
+    expect(newPiecesTag(parseBrief("# t\n\n## Changes for now\n\n1. Hide the tag `A`.\n"))).toBeNull();
   });
 
   it("turns a room name into its V ref", () => {

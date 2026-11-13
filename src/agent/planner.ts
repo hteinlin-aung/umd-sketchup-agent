@@ -390,7 +390,7 @@ export function checkAnswer(
     return { answer: null, problems: ["the answer is not valid JSON"] };
   }
   const nameNotes: string[] = [];
-  const parsed = ChangeAnswer.safeParse(fillBase(namesToRefs(tidyScenes(json), summary, nameNotes), change));
+  const parsed = ChangeAnswer.safeParse(fillTag(fillBase(namesToRefs(tidyScenes(json), summary, nameNotes), change), brief));
   if (!parsed.success) {
     return { answer: null, problems: [...nameNotes, ...parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`)] };
   }
@@ -497,6 +497,29 @@ export function fillBase(json: unknown, change: BriefChange): unknown {
     const kind = (st.placement as { kind?: unknown } | undefined)?.kind;
     const beside = kind === "beside" || kind === "inside";
     return st.op === "build" && beside && !("base" in st) ? { ...st, base: want } : raw;
+  });
+  return { ...obj, steps };
+}
+
+/** The one tag the brief puts every new piece on ("Put everything new on the tag `3F TP - Furniture (AGENT)`"), or null. */
+export function newPiecesTag(brief: Brief): string | null {
+  const tags = [...brief.text.matchAll(/\b(?:everything|all|anything|each)\s+new\b[^.\n]*?\btag\s+`([^`]+)`/gi)].map((m) => m[1]!.trim());
+  return new Set(tags).size === 1 ? tags[0]! : null;
+}
+
+/**
+ * New pieces get the brief's tag. (Windows, 2026-11-14, brief 9 AI run 052732: change 2 came BEFORE the "Tags" change
+ * and qwen3:8b used the prompt example's "Furniture (AGENT)", so the shelf landed on a tag of its own.) The code knows
+ * the tag, so it sets it, like "base".
+ */
+export function fillTag(json: unknown, brief?: Brief): unknown {
+  const want = brief ? newPiecesTag(brief) : null;
+  const obj = json as { steps?: unknown } | null;
+  if (!want || !obj || typeof obj !== "object" || !Array.isArray(obj.steps)) return json;
+  const steps = obj.steps.map((raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const st = raw as Record<string, unknown>;
+    return (st.op === "build" || st.op === "place") && st.tag !== want ? { ...st, tag: want } : raw;
   });
   return { ...obj, steps };
 }
