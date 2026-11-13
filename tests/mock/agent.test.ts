@@ -469,12 +469,25 @@ describe("executePlan: running the approved plan", () => {
     expect(sketchup.tags.get("1F Reception - Lighting (T128)")).toBe(true); // shown again before saving
   });
 
-  it("frames the screenshot on the new shapes (Windows: the room filled only a quarter of the image)", async () => {
+  // Windows, 2026-11-13: the iso view from outside framed roofs. Now: one eye-level picture per group of new pieces,
+  // from a camera that stands on the floor near them, aimed at them. No iso view, and no scene tab added.
+  it("takes an eye-level picture of each group of new pieces, aimed at them (no iso view)", async () => {
     const { sketchup, client, summary } = await setup();
-    await executePlan(client, resolveDraft(BRIEF1, summary, OPTS));
-    const shot = sketchup.received.find((c) => c.tool === "captureView")!;
-    const job = sketchup.allEntities().find((e) => e.name === "AGENT 1F_reception test")!;
-    expect(shot.args.zoomTo).toEqual({ entityId: job.entityId });
+    const plan = resolveDraft(BRIEF1, summary, OPTS);
+    const shots = plan.actions.filter((a) => a.tool === "captureView");
+    expect(shots.map((a) => a.viewOf)).toEqual([["S1", "S2"], ["S3"], ["S4", "S5"]]); // counter+top, forest bench, entrance kerbs
+    for (const a of shots) {
+      const cam = a.args.camera as { eye: number[]; target: number[] };
+      expect(cam.eye[2]).toBeCloseTo(summary.floor.z + 1.6, 3); // eye level
+      expect(cam.target[2]).toBe(cam.eye[2]); // level: walls stay vertical
+      expect(a.args.zoomTo).toBeUndefined();
+    }
+    const scenesBefore = [...sketchup.scenes];
+    await executePlan(client, plan);
+    const sent = sketchup.received.filter((c) => c.tool === "captureView");
+    expect(sent.map((c) => c.args.fileName)).toEqual(["1F_reception_test_1.png", "1F_reception_test_2.png", "1F_reception_test_3.png"]);
+    expect(sent.every((c) => c.args.camera && !c.args.zoomTo)).toBe(true);
+    expect(sketchup.scenes).toEqual(scenesBefore); // a picture, not a new scene tab
   });
 
   it("stops at the first failure and does not save", async () => {
@@ -505,7 +518,7 @@ describe("executePlan: running the approved plan", () => {
     const plan = resolveDraft(BRIEF1, summary, OPTS);
     const run = await executePlan(client, plan);
     const report = renderReport({ brief: "1. hide sofa", summaryText: renderSummary(summary), plan, run, model: "fake" });
-    expect(report).toContain("all 15 actions ran");
+    expect(report).toContain("all 17 actions ran");
     expect(report).toContain(renderPlan(plan).split("\n")[2]);
     expect(report).toContain("R5  Sofa set 4");
   });

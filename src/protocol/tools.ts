@@ -182,13 +182,25 @@ export const ApplyMaterialData = z.object({
 
 // ---------- captureView ----------
 
-export const CaptureViewArgs = z.strictObject({
-  fileName: SafeFileName("png"),
-  width: z.number().int().min(320).max(4_096).default(1_600),
-  height: z.number().int().min(240).max(4_096).default(900),
-  scene: Name.optional(), // use this scene's camera
-  zoomTo: Target.optional(), // or zoom to fit this entity
-});
+export const CaptureViewArgs = z
+  .strictObject({
+    fileName: SafeFileName("png"),
+    width: z.number().int().min(320).max(4_096).default(1_600),
+    height: z.number().int().min(240).max(4_096).default(900),
+    scene: Name.optional(), // use this scene's camera
+    zoomTo: Target.optional(), // or zoom to fit this entity
+    // or stand exactly here (bridge 0.7.1): the agent's eye-level views of new pieces; no scene tab is added
+    camera: z
+      .strictObject({ eye: Vec3, target: Vec3, fov: z.number().min(10).max(120).default(60) })
+      .refine((c) => Math.hypot(c.eye[0] - c.target[0], c.eye[1] - c.target[1], c.eye[2] - c.target[2]) >= 0.1, {
+        message: "eye and target must be at least 0.1 m apart",
+      })
+      .refine((c) => Math.hypot(c.eye[0] - c.target[0], c.eye[1] - c.target[1]) >= 0.01, {
+        message: "the camera can't look straight up or down (up is always z)",
+      })
+      .optional(),
+  })
+  .refine((a) => !a.camera || (!a.scene && !a.zoomTo), { message: "camera can't be combined with scene or zoomTo", path: ["camera"] });
 export const CaptureViewData = z.object({
   path: z.string(),
   bytes: z.number().int(),

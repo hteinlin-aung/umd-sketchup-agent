@@ -232,14 +232,27 @@ module UMDBridge
     end
 
     def captureView(a)
-      Args.only!(a, %w[fileName width height scene zoomTo])
-      {
+      Args.only!(a, %w[fileName width height scene zoomTo camera])
+      out = {
         'fileName' => Args.file_name(a, 'fileName', 'png'),
         'width' => Args.int(a, 'width', 320, 4096, 1600),
         'height' => Args.int(a, 'height', 240, 4096, 900),
         'scene' => Args.name(a, 'scene', required: false),
-        'zoomTo' => Args.target(a, 'zoomTo', required: false)
+        'zoomTo' => Args.target(a, 'zoomTo', required: false),
+        'camera' => nil
       }
+      return out unless a.key?('camera')
+      c = a['camera']
+      raise Args.invalid('camera', 'must be { "eye": [x,y,z], "target": [x,y,z], "fov"?: n }') unless c.is_a?(Hash)
+      Args.only!(c, %w[eye target fov])
+      raise Args.invalid('camera', "camera can't be combined with scene or zoomTo") if out['scene'] || out['zoomTo']
+      eye = Args.vec3(c, 'eye')
+      target = Args.vec3(c, 'target')
+      d = (0..2).map { |i| eye[i] - target[i] }
+      raise Args.invalid('camera', 'eye and target must be at least 0.1 m apart') if Math.sqrt(d.sum { |v| v * v }) < 0.1
+      raise Args.invalid('camera', "the camera can't look straight up or down (up is always z)") if Math.hypot(d[0], d[1]) < 0.01
+      out['camera'] = { 'eye' => eye, 'target' => target, 'fov' => Args.number(c, 'fov', 10, 120, 60) }
+      out
     end
 
     def findEntities(a)

@@ -22,6 +22,12 @@ module UMDBridge
           entity, world_tr = Geo.resolve(model, args['zoomTo'])
           view.camera = iso_camera(Geo.world_bbox(entity, world_tr))
         end
+        if args['camera']
+          # The agent's eye-level view of new pieces: stand exactly here for this one picture, then put the camera
+          # back. Unlike addScene, nothing is added to the model.
+          c = args['camera']
+          view.camera = Sketchup::Camera.new(Geo.pt(c['eye']), Geo.pt(c['target']), Z_AXIS, true, c['fov'])
+        end
         ok = view.write_image(filename: path, width: args['width'], height: args['height'], antialias: true, transparent: false)
         raise ToolError.new('VERIFY_FAILED', "write_image failed for #{path}") unless ok && File.exist?(path) && File.size(path) > 0
       ensure

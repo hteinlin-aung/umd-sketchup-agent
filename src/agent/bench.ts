@@ -53,11 +53,19 @@ function signature(a: Action): string {
  * under change 2 instead of 3, which by line numbers cost it two changes for one bookkeeping slip.
  * Operations the reference doesn't have are listed as `extra`.
  */
+/**
+ * One screenshot step is one operation, however many pictures the code takes: it takes one per group of new
+ * pieces, so the count depends on what else got built (a wrong change 5 would otherwise cost line 8 too).
+ */
+function operations(plan: Plan): Action[] {
+  return plan.actions.filter((a, i, all) => !(a.tool === "captureView" && all.slice(0, i).some((b) => b.tool === "captureView" && b.line === a.line)));
+}
+
 export function scorePlan(plan: Plan, reference: Plan, lines: number[]): Score {
   const pool = new Map<string, number>();
-  for (const sig of plan.actions.map(signature)) pool.set(sig, (pool.get(sig) ?? 0) + 1);
+  for (const sig of operations(plan).map(signature)) pool.set(sig, (pool.get(sig) ?? 0) + 1);
   const scores = lines.map((line) => {
-    const expected = reference.actions.filter((a) => a.line === line).map(signature).sort();
+    const expected = operations(reference).filter((a) => a.line === line).map(signature).sort();
     const need = new Map<string, number>();
     for (const sig of expected) need.set(sig, (need.get(sig) ?? 0) + 1);
     const missing = [...need].filter(([sig, n]) => (pool.get(sig) ?? 0) < n).map(([sig]) => sig);

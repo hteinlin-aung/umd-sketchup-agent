@@ -3,6 +3,7 @@ import { UMD_LEVELS } from "../project/umdLevels";
 import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
 import { fitComponent, fitProblem, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
+import { describeView, groupPieces, viewOptions, VIEW_FOV, type ViewOption } from "./views";
 
 /**
  * Step 2c: turns the model's draft into exact, checked tool calls.
@@ -24,7 +25,8 @@ export type Action = {
   builds?: string; // step id this action creates (its entityId is needed later)
   box?: Bounds; // the planned world box of what this action builds or places (for the checks)
   targetsStep?: string; // fill args.target with the entityId of this step when running
-  zoomToJobGroup?: boolean; // screenshot: frame the new shapes instead of the whole room, once they exist
+  viewOptions?: ViewOption[]; // screenshot: standpoints best first; the real model picks one before the plan is shown
+  viewOf?: string[]; // screenshot: the new pieces this picture is aimed at
 };
 
 export type Plan = {
@@ -237,16 +239,36 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
         break;
       }
 
-      case "screenshot":
-        add({
-          line: step.line,
-          title: "SCREENSHOT (iso view of the room)",
-          tool: "captureView",
-          args: { fileName: `${safeName(opts.briefName)}_${opts.runId}.png`, zoomTo: { persistentId: summary.room.persistentId } },
-          details: ["frames the new shapes (or the whole room if nothing was built)"],
-          zoomToJobGroup: true,
+      case "screenshot": {
+        // An eye-level view of each group of new pieces, from where a person could stand. (Windows, 2026-11-13: the
+        // old iso view from outside framed roofs.) The first standpoint that passes this summary check is planned;
+        // the real model checks them all with rays before the plan is shown (src/geometry/views.ts).
+        const pieces = [...built].map(([id, b]) => ({ id, box: { min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] } as Bounds }));
+        const groups = pieces.length
+          ? groupPieces(pieces).map((g) => ({ ...g, options: viewOptions(g.box, summary) }))
+          : [{ ids: [] as string[], box: summary.room.bounds, options: roomViews(summary) }];
+        groups.forEach((g, i) => {
+          const others = new Map([...built].filter(([id]) => !g.ids.includes(id)));
+          const clear = g.options.filter((o) => viewLooksClear(o, summary, others));
+          const options = [...clear, ...g.options.filter((o) => !clear.includes(o))];
+          const first = options[0]!;
+          const name = `${safeName(opts.briefName)}_${opts.runId}${groups.length > 1 ? `_${i + 1}` : ""}.png`;
+          add({
+            line: step.line,
+            title: g.ids.length ? `SCREENSHOT of ${g.ids.join("+")} (${describeView(first, g.ids)})` : `SCREENSHOT of the room (eye level, from its ${first.side} side)`,
+            tool: "captureView",
+            args: { fileName: name, camera: { eye: first.eye, target: first.target, fov: first.fov } },
+            details: [
+              `camera at ${first.eye.map(fmt).join(", ")}, looking at ${first.target.map(fmt).join(", ")} (metres), field of view ${first.fov}°`,
+              "the standpoint is checked against the real model (standing on the floor, nothing in between) before the plan is shown",
+            ],
+            warnings: clear.length ? [] : ["every standpoint is blocked by an item's box (boxes only): the real model check decides"],
+            viewOptions: options,
+            viewOf: g.ids,
+          });
         });
         break;
+      }
 
       case "scene": {
         const cam = sceneCamera(step, summary, refs, errors);
@@ -398,6 +420,40 @@ function insideOnlyWithTarget(
     if (standsInsideBox(eye, box) && !boxHoldsPoint(target, box)) return false;
   }
   return true;
+}
+
+/** A screenshot standpoint, by the summary's boxes: not inside an item, and no item or other new block in between. */
+function viewLooksClear(o: ViewOption, summary: RoomSummary, others: Map<string, Built>): boolean {
+  const at: [number, number, number] = [o.eye[0], o.eye[1], o.rayZ];
+  if (!insideOnlyWithTarget(o.eye, o.target, summary, others)) return false;
+  const blocks = (b: Bounds) => o.rayZ > b.min[2] && o.rayZ < b.max[2] && segmentHitsBox([at[0], at[1]], [o.target[0], o.target[1]], b) && !standsInsideBox(at, b);
+  if (summary.items.some((it) => it.visible && !boxHoldsPoint(o.target, it.bounds) && blocks(it.bounds))) return false;
+  return ![...others.values()].some((b) => blocks({ min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] }));
+}
+
+/** Nothing new to look at: eye-level views of the room's middle from just inside each of its sides. */
+function roomViews(summary: RoomSummary): ViewOption[] {
+  const room = summary.room.bounds;
+  const z = Math.round((summary.floor.z + 1.6) * 1000) / 1000;
+  const mx = (room.min[0] + room.max[0]) / 2;
+  const my = (room.min[1] + room.max[1]) / 2;
+  const at: Record<"north" | "south" | "east" | "west", [number, number]> = {
+    south: [mx, room.min[1] + SCENE_INSET],
+    north: [mx, room.max[1] - SCENE_INSET],
+    west: [room.min[0] + SCENE_INSET, my],
+    east: [room.max[0] - SCENE_INSET, my],
+  };
+  const look = { south: "north", north: "south", west: "east", east: "west" } as const;
+  return (Object.keys(at) as (keyof typeof at)[]).map((side) => ({
+    eye: [round(at[side][0]), round(at[side][1]), z],
+    target: [round(mx), round(my), z],
+    fov: VIEW_FOV,
+    side,
+    look: look[side],
+    near: 0, // no pieces to see past: only the floor under the camera is checked
+    rayZ: z,
+    floorZ: summary.floor.z,
+  }));
 }
 
 /** Items (and new blocks) standing between the camera and what it looks at, at eye height. */

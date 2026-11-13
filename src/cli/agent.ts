@@ -22,6 +22,7 @@ import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
 import { smokeRunId } from "../smoke/runSmoke";
 import { checkAndRepair, verifyRun } from "../geometry/checks";
+import { checkViews } from "../geometry/views";
 import { terminal } from "./terminal";
 import { findRoom, renderSummary, summarizeRoom } from "../summary/roomSummary";
 
@@ -126,6 +127,8 @@ async function main(): Promise<number> {
   for (const r of checked.repairs) checks.push(`MOVED ${r.step} (brief line ${r.line}) ${r.moved} m ${r.direction}: ${r.because}`);
   for (const c of checked.unresolved) checks.push(`NOT FIXED ${c.step}: collides with "${c.with}" (${c.path.join(" > ")})`);
   if (checked.repairs.length === 0 && checked.unresolved.length === 0) checks.push("no new block cuts into any real part of the model");
+  // Where each screenshot stands, now that the blocks are where they will be (after any slide).
+  if (!plan.errors.length) checks.push(...(await checkViews(client, plan)));
   if (checked.repairs.length) writeFileSync(`${dir}/draft.repaired.json`, JSON.stringify(checked.draft, null, 2));
   writeFileSync(`${dir}/plan.json`, JSON.stringify(plan, null, 2));
   console.log(`\n${renderPlan(plan)}\n\nGEOMETRY CHECKS:\n${checks.map((c) => `  ${c}`).join("\n")}\n`);

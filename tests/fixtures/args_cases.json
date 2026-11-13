@@ -419,6 +419,152 @@
     }
   },
   {
+    "tool": "captureView",
+    "valid": true,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          30,
+          83,
+          3.089
+        ],
+        "target": [
+          30,
+          79.65,
+          3.089
+        ],
+        "fov": 60
+      }
+    }
+  },
+  {
+    "tool": "captureView",
+    "valid": true,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          0,
+          0,
+          1.6
+        ],
+        "target": [
+          1,
+          0,
+          1.6
+        ]
+      }
+    }
+  },
+  {
+    "tool": "captureView",
+    "valid": false,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          30,
+          83,
+          3.089
+        ],
+        "target": [
+          30,
+          79.65,
+          3.089
+        ],
+        "fov": 60
+      },
+      "scene": "1F Reception"
+    }
+  },
+  {
+    "tool": "captureView",
+    "valid": false,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          30,
+          83,
+          3.089
+        ],
+        "target": [
+          30,
+          79.65,
+          3.089
+        ],
+        "fov": 60
+      },
+      "zoomTo": {
+        "entityId": 42
+      }
+    }
+  },
+  {
+    "tool": "captureView",
+    "valid": false,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          0,
+          0,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          1
+        ]
+      }
+    }
+  },
+  {
+    "tool": "captureView",
+    "valid": false,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          0,
+          0,
+          1.6
+        ],
+        "target": [
+          1,
+          0,
+          1.6
+        ],
+        "fov": 200
+      }
+    }
+  },
+  {
+    "tool": "captureView",
+    "valid": false,
+    "args": {
+      "fileName": "a.png",
+      "camera": {
+        "eye": [
+          0,
+          0,
+          1.6
+        ],
+        "target": [
+          1,
+          0,
+          1.6
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ]
+      }
+    }
+  },
+  {
     "tool": "saveCopy",
     "valid": true,
     "args": {
