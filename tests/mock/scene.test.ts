@@ -109,13 +109,29 @@ describe("resolveDraft: scene steps", () => {
     const a = resolveDraft({ steps, notDone: [] }, summary, OPTS).actions.find((x) => x.tool === "addScene")!;
     const w = a.warnings.join("\n");
     expect(w).toMatch(/the view of R1 is blocked by R8 "Terrarium E/);
-    expect(w).toMatch(/a clear view of it: from .*\beast\b/);
+    expect(w).toMatch(/a clear view of it: from .*\bnorth\b/);
   });
 
-  it("no warning when nothing stands in between", async () => {
+  // Windows, 2026-11-13: the "seated" warning offered east, where the camera stands 0.6 m inside R7 "Corner lounge D"
+  // (its planted rock wall). sightBlockers ignores a box the camera stands in, so that side looked clear.
+  it("does not offer a side where the camera would stand inside something", async () => {
+    const { summary, refs } = await setup();
+    const steps = [scene("northwest", { toward: "R1", eyeHeight: 1.1 }), SAVE];
+    const a = resolveDraft({ steps, notDone: [] }, summary, OPTS).actions.find((x) => x.tool === "addScene")!;
+    const offered = /a clear view of it: from (.*)$/m.exec(a.warnings.join("\n"))?.[1] ?? "";
+    expect(offered).toContain("north");
+    expect(offered).not.toMatch(/\beast\b/);
+    const east = sceneCamera({ line: 8, name: "v", from: "east", toward: "R1", eyeHeight: 1.1 }, summary, refs, [])!;
+    const r7 = refs.get("R7")!.bounds;
+    expect(east.eye[0]).toBeGreaterThan(r7.min[0]); // the camera it would have offered really is in the lounge
+    expect(east.eye[1]).toBeLessThan(r7.max[1]);
+  });
+
+  it("no blocked warning when nothing stands in between, but it says the camera is in a box", async () => {
     const { summary } = await setup();
     const a = resolveDraft({ steps: [scene("east", { toward: "R1" }), SAVE], notDone: [] }, summary, OPTS).actions.find((x) => x.tool === "addScene")!;
     expect(a.warnings.join()).not.toMatch(/blocked/);
+    expect(a.warnings.join()).toMatch(/stands inside the box of R7/);
   });
 
   it("must come before the save, or the copy wouldn't have it", async () => {

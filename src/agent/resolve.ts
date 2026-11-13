@@ -252,9 +252,8 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
         if (!cam) break;
         const hidden = [...new Set([...summary.tags.filter((tg) => !tg.visible).map((tg) => tg.name), ...hiddenTags])].filter((t) => !/^zz_REPLACED/i.test(t));
         const warnings = [...cam.warnings];
-        const [ex, ey, ez] = cam.eye;
         if (step.from !== "above") {
-          const inside = (b: Bounds) => ex > b.min[0] && ex < b.max[0] && ey > b.min[1] && ey < b.max[1] && ez > b.min[2] && ez < b.max[2];
+          const inside = (b: Bounds) => standsInsideBox(cam.eye, b);
           for (const it of summary.items) if (it.visible && inside(it.bounds)) warnings.push(`the camera stands inside the box of ${it.ref} "${short(it.name)}" (boxes only: look at the scene)`);
           for (const [id, b] of built) {
             if (inside({ min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] })) warnings.push(`the camera stands inside ${id} "${b.name}" from this plan`);
@@ -267,7 +266,13 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           if (blockers.length) {
             const clear = Object.keys(COMPASS).filter((side) => {
               const other = sceneCamera({ ...step, from: side }, summary, refs, []);
-              return other && sightBlockers(other.eye, other.target, { ...step, from: side }, summary, built).length === 0;
+              if (!other) return false;
+              // A side is no use if the camera would stand inside something at eye height. sightBlockers ignores a box
+              // the camera stands in (a whole-area group, like the lounge furniture), so without this an enclosure reads
+              // as clear. (Windows, 2026-11-13: "east" was offered with the camera 0.6 m inside R7 "Corner lounge D".)
+              if (summary.items.some((it) => it.visible && standsInsideBox(other.eye, it.bounds))) return false;
+              if ([...built.values()].some((b) => standsInsideBox(other.eye, { min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] }))) return false;
+              return sightBlockers(other.eye, other.target, { ...step, from: side }, summary, built).length === 0;
             });
             warnings.push(
               `the view of ${step.toward} is blocked by ${blockers.join(", ")} (boxes at eye height: look at the scene)` +
@@ -337,6 +342,11 @@ export function segmentHitsBox(p: [number, number], q: [number, number], b: Boun
     if (t0 > t1) return false;
   }
   return true;
+}
+
+/** Is the camera standing inside this box (at eye height)? Boxes only, so it is a warning, not an error. */
+function standsInsideBox(eye: [number, number, number], b: Bounds): boolean {
+  return eye[0] > b.min[0]! && eye[0] < b.max[0]! && eye[1] > b.min[1]! && eye[1] < b.max[1]! && eye[2] > b.min[2]! && eye[2] < b.max[2]!;
 }
 
 /** Items (and new blocks) standing between the camera and what it looks at, at eye height. */
