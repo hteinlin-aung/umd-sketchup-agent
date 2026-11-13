@@ -14,7 +14,7 @@ import { executePlan, renderReport } from "../agent/execute";
 import { Draft } from "../agent/draft";
 import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
 import { parseBrief } from "../agent/brief";
-import { briefRules, planBrief } from "../agent/planner";
+import { NothingPlannedError, briefRules, planBrief } from "../agent/planner";
 import { renderPlan, resolveDraft } from "../agent/resolve";
 import { BridgeClient } from "../bridge/client";
 import { createTransport } from "../bridge/createTransport";
@@ -88,12 +88,28 @@ async function main(): Promise<number> {
     const started = Date.now();
     // Start cold, the same condition the benchmark measures (Ollama's prompt cache changes answers). --warm skips it.
     if (!args.includes("--warm")) await ollamaUnload(config.ollamaUrl, config.ollamaModel);
-    const out = await planBrief(ollamaLlm(config.ollamaUrl, config.ollamaModel), brief, summary, summaryText, { runId, briefName, catalog }, (o) =>
-      console.log(
-        `  change ${o.line}: ${o.type === "failed" ? `FAILED after ${o.tries} tries (${o.problems[0]})` : o.type === "steps" ? `${o.steps} step${o.steps === 1 ? "" : "s"}` : o.type}` +
-          `${o.tries > 1 && o.type !== "failed" ? " (2nd try)" : ""}, ${o.seconds} s`,
-      ),
-    );
+    let out: Awaited<ReturnType<typeof planBrief>>;
+    try {
+      out = await planBrief(ollamaLlm(config.ollamaUrl, config.ollamaModel), brief, summary, summaryText, { runId, briefName, catalog }, (o) =>
+        console.log(
+          `  change ${o.line}: ${o.type === "failed" ? `FAILED after ${o.tries} tries (${o.problems[0]})` : o.type === "steps" ? `${o.steps} step${o.steps === 1 ? "" : "s"}` : o.type}` +
+            `${o.tries > 1 && o.type !== "failed" ? " (2nd try)" : ""}, ${o.seconds} s`,
+        ),
+      );
+    } catch (e) {
+      if (!(e instanceof NothingPlannedError)) throw e;
+      // Nothing to run, but every answer and every reply of the checker is kept, and the run still has an outcome.
+      writeFileSync(`${dir}/model_answers.json`, JSON.stringify(e.result.answers, null, 2));
+      writeFileSync(`${dir}/outcomes.json`, JSON.stringify(e.result.outcomes, null, 2));
+      const why = [
+        `the language model (${modelName}) could not plan any change of the brief in its tries; nothing ran`,
+        ...e.result.outcomes.filter((o) => o.type === "failed").map((o) => `change ${o.line}: ${o.problems[0] ?? "no usable answer"}`),
+        `every answer and the checker's reply to each try: ${dir}/model_answers.json`,
+      ];
+      writeFileSync(`${dir}/report.md`, [`# Agent run ${runId}`, "", "## Outcome: **MAX_ATTEMPTS_REACHED**", "", ...why.map((w) => `- ${w}`), "", "## Brief", "", brief.text.trim(), ""].join("\n"));
+      console.log(`\nOUTCOME: MAX_ATTEMPTS_REACHED\n${why.map((w) => `  - ${w}`).join("\n")}`);
+      return 1;
+    }
     writeFileSync(`${dir}/model_answers.json`, JSON.stringify(out.answers, null, 2));
     writeFileSync(`${dir}/outcomes.json`, JSON.stringify(out.outcomes, null, 2));
     console.log(`  all changes planned in ${((Date.now() - started) / 1000).toFixed(0)} s`);

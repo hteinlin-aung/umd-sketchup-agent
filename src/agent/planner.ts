@@ -109,7 +109,18 @@ export type ChangeOutcome = {
   seconds: number;
 };
 
-export type PlanResult = { draft: Draft; answers: { line: number; text: string }[]; outcomes: ChangeOutcome[] };
+export type PlanResult = { draft: Draft; answers: { line: number; text: string; problems?: string[] }[]; outcomes: ChangeOutcome[] };
+
+/**
+ * No change could be planned at all. It carries everything the model said and what the checker answered, so the
+ * run can still save them. (Windows, 2026-11-14, brief 7: the error said "see the answers in the run folder", but
+ * it was thrown before they were written, so the failure could not be read.)
+ */
+export class NothingPlannedError extends Error {
+  constructor(public readonly result: PlanResult) {
+    super("the model produced no steps at all; its answers and the checker's replies are in model_answers.json");
+  }
+}
 
 /** "on the counter", "on top of", "a top" (but not "on the floor" / "on the east side"). */
 const ON_SOMETHING = /\bon top of\b|\bon the (?!floor\b|ground\b|east\b|west\b|north\b|south\b|left\b|right\b|side\b|tag\b)\w+|\btop\b/i;
@@ -211,6 +222,7 @@ export async function planBrief(
       answers.push({ line: change.line, text });
       const checked = checkAnswer(text, change, steps, firstId, summary, opts, brief);
       problems = checked.problems;
+      answers[answers.length - 1]!.problems = problems; // what the checker told the model, try by try
       if (problems.length === 0) {
         accepted = checked.answer;
         break;
@@ -246,7 +258,7 @@ export async function planBrief(
   }
 
   for (const item of brief.later) notDone.push({ what: short(item), reason: 'marked "(later)" in the brief' });
-  if (steps.length === 0) throw new Error("the model produced no steps at all; see the answers in the run folder");
+  if (steps.length === 0) throw new NothingPlannedError({ draft: { steps, notDone }, answers, outcomes });
   return { draft: { steps, notDone }, answers, outcomes };
 }
 

@@ -4,7 +4,7 @@ import { parseBrief } from "../../src/agent/brief";
 import { Draft, changeAnswerJsonSchema, draftJsonSchema, type DraftStep } from "../../src/agent/draft";
 import { executePlan, renderReport } from "../../src/agent/execute";
 import type { Llm } from "../../src/agent/llm";
-import { briefPutsItThere, checkAnswer, planBrief } from "../../src/agent/planner";
+import { NothingPlannedError, briefPutsItThere, checkAnswer, planBrief } from "../../src/agent/planner";
 import { t133 } from "../helpers/t133";
 import { overlaps, renderPlan, resolveDraft } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
@@ -573,5 +573,21 @@ describe("report.md starts with the outcome (Week 3 done-when)", () => {
     const lines = md.split("\n");
     expect(lines[2]).toBe("## Outcome: **BLOCKED**");
     expect(lines[4]).toBe("- the plan has problems the code can't fix, so nothing ran");
+  });
+});
+
+// Windows, 2026-11-14 (brief 7, PowerShell run 012351): every change failed, and the error said "see the answers in
+// the run folder" - but it was thrown before they were saved. Now the error carries every answer and the checker's
+// reply to each try.
+describe("planBrief: when no change can be planned at all", () => {
+  it("throws NothingPlannedError carrying every answer and what the checker said to it", async () => {
+    const { summary } = await setup();
+    const brief = parseBrief(readFileSync("instructions/1F_reception.md", "utf8"));
+    const llm: Llm = async () => JSON.stringify({ type: "steps", steps: [{ op: "replace", target: "R40" }], reason: "" });
+    const err = await planBrief(llm, brief, summary, renderSummary(summary), OPTS).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NothingPlannedError);
+    const answers = (err as NothingPlannedError).result.answers;
+    expect(answers.length).toBe(brief.changes.length * 2); // two tries per change, all kept
+    expect(answers[0]!.problems!.join()).toMatch(/R40 is not in the room summary/);
   });
 });
