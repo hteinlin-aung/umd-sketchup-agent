@@ -291,7 +291,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           details: [
             `camera at ${cam.eye.map(fmt).join(", ")}, looking at ${cam.target.map(fmt).join(", ")} (metres), field of view ${cam.fov}°`,
             hidden.length ? `the scene keeps these tags hidden: ${hidden.join(", ")}` : "every tag is visible in this scene",
-            "a new scene tab: D5 can render it; an existing scene with this name is never changed (this one gets \" (2)\")",
+            "a new scene tab: D5 can render it; if the model already has a scene with this name, that one is left alone and this tab is named \"... (2)\"",
           ],
           warnings,
         });
