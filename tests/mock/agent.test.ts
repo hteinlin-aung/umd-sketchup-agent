@@ -661,3 +661,22 @@ describe("an item name where a ref belongs (2F names look like identifiers)", ()
     expect(checkAnswer(bench("R1"), change1, [], 1, pool, opts, brief).problems.join()).toMatch(/S1 ends up outside the room/);
   });
 });
+
+// Windows, 2026-11-14 (brief 8, run 020530): "The same bench on the other side of the nook" was read as "ON an
+// earlier block", and qwen3:8b's exact reference answer was refused twice.
+describe("'on the other side' is a side, not 'on top of'", () => {
+  it("brief 8's east bench is accepted beside the glass; 'on the counter' still means on top", async () => {
+    const brief = parseBrief(readFileSync("instructions/3F_rest_window_benches.md", "utf8"));
+    const change2 = brief.changes.find((c) => c.line === 2)!;
+    expect(change2.text).toMatch(/on the other side of the nook/);
+    const { summary } = await setup();
+    const glass = summary.items.find((it) => it.ref === "R12")!; // a thin wall in the mock reception
+    const answer = (anchor: string) =>
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S2", name: "East window bench", placement: { kind: "beside", anchor, side: "west", gap: 0.1, eastWest: 0.45, northSouth: 1.0, shift: 0 }, height: 0.45, tag: "T" }], reason: "" });
+    const done: DraftStep[] = [{ op: "build", line: 1, id: "S1", name: "West bench", placement: { kind: "beside", anchor: glass.ref, side: "west", gap: 3, eastWest: 0.45, northSouth: 1.0, shift: 0 }, height: 0.45, base: 0, tag: "T" }];
+    const p = checkAnswer(answer(glass.ref), { line: 2, text: change2.text.replace(/`GARDEN GLASS WALL`/g, "`EAST GLASS WALL (T132)`") }, done, 2, summary, OPTS).problems.join();
+    expect(p).not.toMatch(/puts it ON an earlier block/);
+    const onTop = checkAnswer(answer(glass.ref), { line: 2, text: "A thin travertine top on the counter, 0.04 m thick." }, done, 2, summary, OPTS).problems.join();
+    expect(onTop).toMatch(/puts it ON an earlier block/);
+  });
+});

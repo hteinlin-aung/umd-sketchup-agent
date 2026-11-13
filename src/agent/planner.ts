@@ -123,7 +123,9 @@ export class NothingPlannedError extends Error {
 }
 
 /** "on the counter", "on top of", "a top" (but not "on the floor" / "on the east side"). */
-const ON_SOMETHING = /\bon top of\b|\bon the (?!floor\b|ground\b|east\b|west\b|north\b|south\b|left\b|right\b|side\b|tag\b)\w+|\btop\b/i;
+// "on the other side of the nook" is a position, not "on top of" (Windows, 2026-11-14, brief 8: qwen3:8b's exact
+// reference answer for the east bench was refused twice as "ON an earlier block"). Any "on the <word> side" is a side.
+const ON_SOMETHING = /\bon top of\b|\bon the (?!(?:floor|ground|east|west|north|south|left|right|side|tag)\b)(?!\w+ side\b)\w+|\btop\b/i;
 
 /** Words that mean "a real component, not a block". */
 const COMPONENT_WORDS = /\bcomponent\b|3D ?Warehouse|\b3DW_/i;
