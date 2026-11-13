@@ -1,6 +1,6 @@
 # UMD SketchUp Agent — PLAN
 
-*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: **Week 1 DONE 2026-10-29** · **Week 2 DONE 2026-11-12** (brief → qwen3:8b plan → approval → built and saved, 15/15) · Week 3 next*
+*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: **Week 1 DONE 2026-10-29** · **Week 2 DONE 2026-11-12** (brief → qwen3:8b plan → approval → built and saved, 15/15) · **Week 3 DONE 2026-11-14** (whole-model checks, components, scenes, clear outcomes) · Week 4 next*
 
 ## Summary
 
@@ -228,7 +228,7 @@ contain platform-specific binaries). Run `npm install` separately on the Mac and
 produces the right changes in the copy, each one confirmed by reading it back. No change happens outside
 the approved targets.
 
-### Week 3 (Nov 12 – Nov 18): checks, fixes, more tools
+### Week 3 (Nov 12 – Nov 18): checks, fixes, more tools — ✅ DONE 2026-11-14
 - `geometry/checks.ts`: inside the room, no overlaps with existing walls/columns, minimum clearances,
   heights, the material actually applied, nothing changed outside the job group.
 - Repair loop: issue → predefined fix → re-check → keep or roll back. Max 3 attempts per issue, then report.
@@ -405,3 +405,4 @@ ROG Strix Z790-E Gaming WiFi II (main slot can split x8/x8). Power supply wattag
 - 2026-11-13: **Correction: `--draft` runs DO work from the Windows chat** when they run in the foreground of one shell command (up to 3 minutes; brief 5 took about 70 s with the save, and its report.md was written). Earlier runs failed only because they were started in the background. Runs that ask the language model still need PowerShell: the Windows chat's shell can't reach Ollama.
 - 2026-11-13: **Windows: Week 3 "done when" test passes on the real model - test brief 6 (`instructions/1F_reception_wrong.md`) and a clear outcome in every report.** Every run now ends with ONE outcome, first thing in report.md and on screen: **SUCCESS** (all ran, read-back clean, saved; automatic moves you approved are listed), **BLOCKED** (the plan had a problem the code can't fix, you stopped it, a step failed, or the read-back failed - nothing saved), **MAX_ATTEMPTS_REACHED** (the repair moved a block on all 3 tries and it still collides, or the model couldn't plan a change in its tries; then the rest ran), or NOT RUN (`--dry`). Test brief 6 puts change 1, a travertine plinth, on purpose on a real D500 column (x 93.89..94.39, y 99.49..99.99) and change 2, a window bench, in open floor. On the full 1F dev copy: the reference draft is caught on the column, slid 0.867 m north, the bench untouched, run and saved - **SUCCESS** (run 165406; the eye-level picture shows the plinth just clear of the column). The `.blocked` draft (the same plinth 6.0 m long, through two columns) - **BLOCKED**, both columns named, nothing ran (run 165341). MAX_ATTEMPTS_REACHED is tested on the mock (a block bouncing between two bars for 3 tries). Vitest 424.
 - 2026-11-13: **`UMD_DEV_1F_reception.skp` holds only the reception room group - no columns, walls or floor.** Found when test brief 6's "blocked" plinth was built through thin air and reported SUCCESS (run 164919; that dev copy was saved, nothing else). The collision check can't hit a building that isn't in the file, so the agent now probes straight down at four points under the room: with no floor at the floor level, GEOMETRY CHECKS warns that walls and columns could NOT be checked, the outcome lists "NOT CHECKED", and the picture standpoints are checked only for things in between. Tests that need the building (like test brief 6) run on the full 1F copy (`UMD_DEV_1F_meditation.skp`).
+- 2026-11-14: **Week 3 DONE (Mac review of 1a794bc).** Done-when passed on the real 1F copy: SUCCESS (plinth slid off a column) and BLOCKED (6 m plinth through two columns), outcome at the top of report.md; screenshots eye-level and checked with rays. Note: `UMD_DEV_1F_reception.skp` has no building in it; collision tests need the full 1F copy. **Week 4 order (agreed by Mac):** Mac rewrites README now; Htain makes 2F and 3F dev copies; Windows reads a 2F room summary and writes + runs a real thesis brief there, then 3F; one timed run on a full copy of the MASTER; feature freeze 2026-11-19, then only bugs and thesis rooms. `cutOpening`/section cut postponed; floor height for raised rooms only if a thesis brief needs it.
