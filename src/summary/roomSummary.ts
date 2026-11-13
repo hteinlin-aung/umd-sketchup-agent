@@ -1,6 +1,7 @@
 import type { BridgeClient } from "../bridge/client";
 import type { Bounds, DataOf, Target } from "../protocol/tools";
 import { UMD_LEVELS, type UmdFloor } from "../project/umdLevels";
+import { findSubRooms, type SubRoom, type TradeItem } from "./subRooms";
 
 /**
  * Step 2b: a short description of one room that a small local model can read.
@@ -31,6 +32,7 @@ export type SummaryItem = {
   categories: string[]; // what the contents look like: furniture, plant, glass, light
   warnings: string[];
   canChange: boolean; // false = inside a component used more than once
+  measureOnly?: string; // a sub-room or one of its parts, found from names: what it is, for error messages
 };
 
 export type RoomSummary = {
@@ -41,6 +43,7 @@ export type RoomSummary = {
   tags: { name: string; visible: boolean }[];
   materials: { design: string[]; otherCount: number }; // design = "UMD ..." materials; the rest are mostly 3D Warehouse imports
   notes: string[];
+  subRooms?: SubRoom[]; // rooms found from part names when the group is organised by trade (subRooms.ts)
 };
 
 const CATEGORIES: Record<string, RegExp> = {
@@ -144,6 +147,7 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
   if (direct.data.truncated) notes.push(`only the first ${maxItems} items are listed; the room has more`);
 
   const items: SummaryItem[] = [];
+  const trade: TradeItem[] = [];
   for (const [i, e] of direct.data.matches.entries()) {
     // Direct parts only. The search limit counts EVERYTHING found, so going deeper let parts-of-parts
     // use up the limit: 115 downlights with 4 parts each were cut at 500 = 100 downlights (Windows, 2026-11-11).
@@ -177,6 +181,7 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
       warnings,
       canChange: !e.insideSharedComponent,
     });
+    trade.push({ ref: `R${i + 1}`, name, parts: all });
   }
 
   const roomName = labelOf(room.data) || "(unnamed room)";
@@ -184,6 +189,11 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
   const floor = floorFor({ name: roomName, path: roomPath }, room.data.worldBounds);
   if (Math.abs(room.data.worldBounds.min[2] - floor.z) > 0.05) {
     notes.push(`the room's lowest point (${round(room.data.worldBounds.min[2])}) is not the floor level (${floor.z}); build on the floor level`);
+  }
+
+  const subRooms = findSubRooms(trade, { floorZ: floor.z, top: round(room.data.worldBounds.max[2]) }, items.length + 1);
+  if (subRooms.length) {
+    notes.push(`this group is organised by trade: ${subRooms.length} rooms were found from the part names (SUB-ROOMS); to put something in one, use "inside" with its V-ref`);
   }
 
   const roomTags = new Set(items.map((it) => it.tag));
@@ -204,11 +214,12 @@ export async function summarizeRoom(client: BridgeClient, roomTarget: Target, ma
     tags: info.data.tags.filter((t) => roomTags.has(t.name) || /reception|agent|replaced/i.test(t.name)),
     materials: { design, otherCount: info.data.counts.materials - design.length },
     notes,
+    ...(subRooms.length ? { subRooms } : {}),
   };
 }
 
 /** Compact text for the language model (and for you to read). Metres, +x east, +y north, +z up. */
-export function renderSummary(s: RoomSummary): string {
+export function renderSummary(s: RoomSummary, opts: { focus?: string } = {}): string {
   const r = s.room;
   const lines = [
     `ROOM: ${r.name}`,
@@ -219,15 +230,19 @@ export function renderSummary(s: RoomSummary): string {
     "",
     "ITEMS (refer to them by ref):",
   ];
+  const subs = s.subRooms ?? [];
+  // With sub-rooms the trade items' contents are listed again, room by room, below: keep them short (the model has 8k tokens).
+  const shown = subs.length ? 3 : 8;
   for (const it of s.items) {
     const flags = [it.visible ? "" : "HIDDEN", it.canChange ? "" : "LOCKED"].filter(Boolean).join(", ");
     lines.push(`${it.ref}  ${it.name}${flags ? `  [${flags}]` : ""}`);
     const runs = runsWhichWay(it.size);
     lines.push(`    tag: ${it.tag} | ${boxText(it.bounds)} | size ${it.size.map(fmt).join(" x ")}${runs ? ` | runs ${runs}` : ""}`);
-    const more = it.contents.length - 8;
-    if (it.contents.length) lines.push(`    contains: ${it.contents.slice(0, 8).join("; ")}${more > 0 ? `; ... (+${more} more)` : ""}`);
+    const more = it.contents.length - shown;
+    if (it.contents.length) lines.push(`    contains: ${it.contents.slice(0, shown).join("; ")}${more > 0 ? `; ... (+${more} more)` : ""}`);
     for (const w of it.warnings) lines.push(`    WARNING: ${w}`);
   }
+  if (subs.length) lines.push("", ...renderSubRooms(subs, opts.focus));
   const tagText = (t: { name: string; visible: boolean }) => (t.visible || /\(hidden\)\s*$/i.test(t.name) ? t.name : `${t.name} (hidden)`);
   lines.push("", `TAGS: ${s.tags.map(tagText).join(" | ")}`);
   const m = s.materials;
@@ -237,6 +252,53 @@ export function renderSummary(s: RoomSummary): string {
   );
   for (const n of s.notes) lines.push(`NOTE: ${n}`);
   return lines.join("\n");
+}
+
+/**
+ * The SUB-ROOMS block. With a focus (the brief's text), only the rooms it names list their parts; the others get one
+ * line each, so 92 parts on 3F don't crowd the brief out of the model's 8k-token window. No room named = all listed.
+ */
+export function renderSubRooms(subs: SubRoom[], focus?: string): string[] {
+  const named = focus ? subs.filter((r) => mentions(focus, r.name)) : subs;
+  const full = new Set((named.length ? named : subs).map((r) => r.ref));
+  const lines = ["SUB-ROOMS (found from part names; measure from them, never take them out or move them):"];
+  for (const r of subs) {
+    lines.push(`${r.ref}  ${r.name}  [SUB-ROOM]`);
+    lines.push(`    ${boxText(r.bounds)} | size ${r.size.map(fmt).join(" x ")} | box = ${r.boxFrom}`);
+    if (!full.has(r.ref)) {
+      lines.push(`    ${r.parts.length} parts, not listed here (the brief does not name this room)`);
+      continue;
+    }
+    for (const p of r.parts) {
+      const runs = runsWhichWay(p.size);
+      const label = p.name.toLowerCase().startsWith(r.name.toLowerCase()) ? p.name.slice(r.name.length).replace(/^\s*-\s*/, "").trim() : p.name;
+      lines.push(`    ${p.ref}  ${p.count > 1 ? `${p.count}x ` : ""}${label} | ${boxText(p.bounds)}${runs ? ` | runs ${runs}` : ""}`);
+    }
+  }
+  return lines;
+}
+
+/** Does the text name this room ("Therapy 1" but not "Therapy 10")? */
+export function mentions(text: string, name: string): boolean {
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${esc}(?![a-z0-9])`, "i").test(text);
+}
+
+/**
+ * Sub-rooms and their parts as items, for measuring from (refs, names). Never in summary.items: the check after the
+ * build compares summary.items before and after, and these are not single SketchUp entities.
+ */
+export function measureOnlyItems(s: RoomSummary): SummaryItem[] {
+  const out: SummaryItem[] = [];
+  const make = (ref: string, name: string, bounds: Bounds, size: [number, number, number], what: string): SummaryItem => ({
+    ref, name, type: "Group", tag: "", visible: true, entityId: 0, persistentId: 0, path: [], bounds, size,
+    contents: [], childCount: 0, categories: categoriesOf(name), warnings: [], canChange: false, measureOnly: what,
+  });
+  for (const r of s.subRooms ?? []) {
+    out.push(make(r.ref, r.name, r.bounds, r.size, `${r.ref} is a sub-room found from names`));
+    for (const p of r.parts) out.push(make(p.ref, p.name, p.bounds, p.size, `${p.ref} is a part of sub-room ${r.ref} "${r.name}"${p.count > 1 ? ` (${p.count} pieces together)` : ""}`));
+  }
+  return out;
 }
 
 /**

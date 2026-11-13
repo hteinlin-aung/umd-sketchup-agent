@@ -21,7 +21,7 @@ import { createTransport } from "../bridge/createTransport";
 import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
 import { smokeRunId } from "../smoke/runSmoke";
-import { checkAndRepair, verifyRun } from "../geometry/checks";
+import { checkAndRepair, sameCollisions, verifyRun } from "../geometry/checks";
 import { checkViews, floorUnderRoom } from "../geometry/views";
 import { runOutcome, type OutcomeInput } from "../agent/outcome";
 import { terminal } from "./terminal";
@@ -62,7 +62,8 @@ async function main(): Promise<number> {
   console.log(`reading the room "${roomQuery}" ...`);
   const room = await findRoom(client, roomQuery);
   const summary = await summarizeRoom(client, { persistentId: room.persistentId });
-  const summaryText = renderSummary(summary);
+  // Sub-rooms the brief names list their parts; the others one line each (8k-token window).
+  const summaryText = renderSummary(summary, { focus: brief.changes.map((c) => c.text).join("\n") });
   writeFileSync(`${dir}/summary.md`, summaryText + "\n");
   console.log(`  ${summary.items.length} items, floor z ${summary.floor.z}`);
 
@@ -144,7 +145,7 @@ async function main(): Promise<number> {
   const plan = checked.plan;
   const checks: string[] = [...chosenLines];
   for (const r of checked.repairs) checks.push(`MOVED ${r.step} (brief line ${r.line}) ${r.moved} m ${r.direction}: ${r.because}`);
-  for (const c of checked.unresolved) checks.push(`NOT FIXED ${c.step}: collides with "${c.with}" (${c.path.join(" > ")})`);
+  for (const { c, n } of sameCollisions(checked.unresolved)) checks.push(`NOT FIXED ${c.step}: collides with ${n > 1 ? `${n}x ` : ""}"${c.with}" (${c.path.join(" > ")})`);
   if (checked.repairs.length === 0 && checked.unresolved.length === 0) checks.push("no new block cuts into any real part of the model");
   // A trimmed copy with only the room in it has no building to collide with: say so instead of "nothing hit".
   const hasFloor = await floorUnderRoom(client, summary);

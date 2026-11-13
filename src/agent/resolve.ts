@@ -1,6 +1,6 @@
 import { TOOLS, type Bounds, type ToolName, type Vec2 } from "../protocol/tools";
 import { UMD_LEVELS } from "../project/umdLevels";
-import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
+import { measureOnlyItems, type RoomSummary, type SummaryItem } from "../summary/roomSummary";
 import { fitComponent, fitProblem, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
 import { describeView, groupPieces, viewOptions, VIEW_FOV, type ViewOption } from "./views";
@@ -45,7 +45,13 @@ type Built = { rect: Rect; z0: number; z1: number; name: string };
 export type ResolveOptions = { runId: string; briefName: string; catalog?: Catalog };
 
 export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOptions): Plan {
-  const refs = new Map(summary.items.map((it) => [it.ref, it]));
+  // Sub-rooms (V1 ...) and their parts can be measured from like items, never taken out (roomSummary.ts).
+  const measureOnly = measureOnlyItems(summary);
+  const refs = new Map([...summary.items, ...measureOnly].map((it) => [it.ref, it]));
+  // A group organised by trade: each item spans every room, so its box overlaps every new block. The parts are the
+  // real things to warn about (Windows, 2026-11-14, T124: 8 "overlaps" warnings per block otherwise).
+  const tradeRefs = new Set((summary.subRooms ?? []).flatMap((r) => [...(r.boxRefs ?? []), ...r.parts.flatMap((p) => p.from)]));
+  const overlapItems = [...summary.items.filter((it) => !tradeRefs.has(it.ref)), ...measureOnly.filter((it) => !/^V/.test(it.ref))];
   const built = new Map<string, Built>();
   const hiddenTags = new Set<string>();
   const actions: Action[] = [];
@@ -62,7 +68,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
       warnings.push("it reaches outside the room's box");
     }
     if (box.max[2] > room.max[2] + 0.001) warnings.push(`its top (z ${fmt(box.max[2])}) is above the room's box`);
-    for (const it of summary.items) {
+    for (const it of overlapItems) {
       if (it.visible && overlaps(box, it.bounds)) warnings.push(`its box overlaps ${it.ref} "${short(it.name)}" (boxes only: check the screenshot)`);
     }
     for (const [other, b] of built) {
@@ -78,7 +84,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   };
   const item = (ref: string, step: DraftStep): SummaryItem | undefined => {
     const it = refs.get(ref);
-    if (!it) errors.push(`line ${step.line}: ${ref} is not in the room summary (there are R1 to R${summary.items.length})`);
+    if (!it) errors.push(`line ${step.line}: ${ref} is not in the room summary (there are R1 to R${summary.items.length + measureOnly.filter((m) => /^R/.test(m.ref)).length}${summary.subRooms?.length ? ` and V1 to V${summary.subRooms.length}` : ""})`);
     return it;
   };
 
@@ -109,6 +115,10 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
       case "replace": {
         const it = item(step.target, step);
         if (!it) break;
+        if (it.measureOnly) {
+          errors.push(`line ${step.line}: ${it.measureOnly}: it can be measured from, but not taken out (it is not one SketchUp item)`);
+          break;
+        }
         if (!it.canChange) errors.push(`line ${step.line}: ${it.ref} sits inside a shared component and can't be changed on its own`);
         add({
           line: step.line,
@@ -130,7 +140,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           errors.push(`line ${step.line}: step id ${step.id} is used twice`);
           break;
         }
-        const placed = place(step.placement, step, refs, built, floorZ, errors);
+        const placed = place(step.placement, step, refs, built, floorZ, errors, summary.room.bounds);
         if (!placed) break;
         const { rect, z0, where } = placed;
         const z1 = z0 + step.height;
@@ -191,7 +201,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           break;
         }
         const [ew, ns, h] = turnedSize(fit.size, step.rotation);
-        const placed = place({ ...step.placement, eastWest: ew, northSouth: ns }, step, refs, built, floorZ, errors);
+        const placed = place({ ...step.placement, eastWest: ew, northSouth: ns }, step, refs, built, floorZ, errors, summary.room.bounds);
         if (!placed) break;
         const { rect, z0, where } = placed;
         built.set(step.id, { rect, z0, z1: z0 + h, name: step.name });
@@ -613,6 +623,7 @@ function place(
   built: Map<string, Built>,
   floorZ: number,
   errors: string[],
+  roomBounds: Bounds,
 ): { rect: Rect; z0: number; where: string } | null {
   if (p.kind === "onTop") {
     const under = built.get(p.of);
@@ -628,6 +639,8 @@ function place(
       where: `on top of ${p.of} "${under.name}", ${fmt(o)} m overhang on every side`,
     };
   }
+
+  if (p.kind === "inside") return placeInside(p, step, refs, floorZ, errors, roomBounds);
 
   const anchor = refs.get(p.anchor);
   if (!anchor) {
@@ -657,6 +670,62 @@ function place(
     rect,
     z0: floorZ + step.base,
     where: `${fmt(p.gap)} m ${p.side} of ${anchor.ref} "${short(anchor.name)}", centred on it${shift}; ${step.base ? `${fmt(step.base)} m above` : "standing on"} the floor (z ${fmt(floorZ)})`,
+  };
+}
+
+/**
+ * "inside": against one side of a room or sub-room, the gap measured INWARD from that side, centred along it unless
+ * shifted. The block must fit in that room's footprint: a block poking through the wall is a mistake, not a warning.
+ */
+function placeInside(
+  p: Extract<Placement, { kind: "inside" }>,
+  step: { line: number; id: string; base: number },
+  refs: Map<string, SummaryItem>,
+  floorZ: number,
+  errors: string[],
+  roomBounds: Bounds,
+): { rect: Rect; z0: number; where: string } | null {
+  const anchor = p.anchor === "room" ? null : refs.get(p.anchor);
+  if (p.anchor !== "room" && !anchor) {
+    errors.push(`line ${step.line}: ${step.id} is placed inside ${p.anchor}, which is not in the room summary`);
+    return null;
+  }
+  const a = anchor ? anchor.bounds : roomBounds;
+  const what = anchor ? `${anchor.ref} "${short(anchor.name)}"` : "the room";
+  const cx = (a.min[0] + a.max[0]) / 2 + p.shift;
+  const cy = (a.min[1] + a.max[1]) / 2 + p.shift;
+  let rect: Rect;
+  switch (p.side) {
+    case "east":
+      rect = { x1: a.max[0] - p.gap, x0: a.max[0] - p.gap - p.eastWest, y0: cy - p.northSouth / 2, y1: cy + p.northSouth / 2 };
+      break;
+    case "west":
+      rect = { x0: a.min[0] + p.gap, x1: a.min[0] + p.gap + p.eastWest, y0: cy - p.northSouth / 2, y1: cy + p.northSouth / 2 };
+      break;
+    case "north":
+      rect = { y1: a.max[1] - p.gap, y0: a.max[1] - p.gap - p.northSouth, x0: cx - p.eastWest / 2, x1: cx + p.eastWest / 2 };
+      break;
+    case "south":
+      rect = { y0: a.min[1] + p.gap, y1: a.min[1] + p.gap + p.northSouth, x0: cx - p.eastWest / 2, x1: cx + p.eastWest / 2 };
+      break;
+  }
+  const T = 0.001;
+  const out: string[] = [];
+  if (rect.x0 < a.min[0] - T) out.push(`${fmt(a.min[0] - rect.x0)} m past its west side`);
+  if (rect.x1 > a.max[0] + T) out.push(`${fmt(rect.x1 - a.max[0])} m past its east side`);
+  if (rect.y0 < a.min[1] - T) out.push(`${fmt(a.min[1] - rect.y0)} m past its south side`);
+  if (rect.y1 > a.max[1] + T) out.push(`${fmt(rect.y1 - a.max[1])} m past its north side`);
+  if (out.length) {
+    const inner = `${fmt(a.max[0] - a.min[0])} m east-west x ${fmt(a.max[1] - a.min[1])} m north-south`;
+    errors.push(`line ${step.line}: ${step.id} does not fit inside ${what} (${inner} inside): it reaches ${out.join(" and ")}; check eastWest/northSouth, gap and shift`);
+    return null;
+  }
+  const along = p.side === "north" || p.side === "south" ? ["east", "west"] : ["north", "south"];
+  const shift = p.shift ? `, shifted ${fmt(Math.abs(p.shift))} m ${p.shift > 0 ? along[0] : along[1]}` : "";
+  return {
+    rect,
+    z0: floorZ + step.base,
+    where: `inside ${what}, ${fmt(p.gap)} m from its ${p.side} side, centred along it${shift}; ${step.base ? `${fmt(step.base)} m above` : "standing on"} the floor (z ${fmt(floorZ)})`,
   };
 }
 

@@ -1,0 +1,15 @@
+{
+  "steps": [
+    { "op": "build", "line": 1, "id": "S1", "name": "Waiting bench - light oak",
+      "placement": { "kind": "inside", "anchor": "V4", "side": "south", "gap": 0.1, "eastWest": 2.4, "northSouth": 0.4, "shift": -2.485 },
+      "height": 0.45, "base": 0, "tag": "3F TP - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "build", "line": 2, "id": "S2", "name": "Check-up shelf - light oak",
+      "placement": { "kind": "inside", "anchor": "V4", "side": "east", "gap": 0.05, "eastWest": 0.3, "northSouth": 2.0, "shift": 1.04 },
+      "height": 1.2, "base": 0, "tag": "3F TP - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "screenshot", "line": 5 },
+    { "op": "save", "line": 5, "fileName": "UMD_DEV_3F_therapy1_inside.skp" }
+  ],
+  "notDone": []
+}

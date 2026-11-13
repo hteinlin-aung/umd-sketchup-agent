@@ -11,7 +11,7 @@ import { z } from "zod";
 
 // No example ref in the message: told 'like "R1"', qwen3:8b wrote "R1" - the floor finish - instead of the wall the
 // brief named (Windows, 2026-11-14, brief 7).
-export const Ref = z.string().regex(/^R\d{1,3}$/, "the ref of an item in the room summary (the R-number written before its name), not its name");
+export const Ref = z.string().regex(/^[RV]\d{1,3}$/, "the ref of an item in the room summary (the R- or V-number written before its name), not its name");
 export const StepId = z.string().regex(/^S\d{1,3}$/, 'a step id like "S1"');
 const Metres = (min: number, max: number) => z.number().min(min).max(max);
 const Label = z.string().trim().min(1).max(80);
@@ -31,6 +31,17 @@ export const Placement = z.discriminatedUnion("kind", [
     eastWest: Metres(0.05, 30), // size from west to east (x)
     northSouth: Metres(0.05, 30), // size from south to north (y)
     shift: Metres(-30, 30).default(0), // slide along the side from the anchor's centre (+ = north or east)
+  }),
+  // INSIDE a room or sub-room, against one of its sides, the gap measured inward ("beside" a room puts things outside
+  // it). "room" = the whole room group. (Mac decision 2026-11-14, for the T124 sub-rooms.)
+  z.strictObject({
+    kind: z.literal("inside"),
+    anchor: z.union([Ref, z.literal("room")]),
+    side: Side, // the side of the room it stands against
+    gap: Metres(0, 20), // clear distance from that side, inward
+    eastWest: Metres(0.05, 30),
+    northSouth: Metres(0.05, 30),
+    shift: Metres(-30, 30).default(0), // slide along that side from the room's centre (+ = north or east)
   }),
   z.strictObject({
     kind: z.literal("onTop"),
@@ -60,13 +71,22 @@ const Build = z.strictObject({
 const Replace = z.strictObject({ op: z.literal("replace"), target: Ref });
 
 /** Where a component goes: like "beside", but its size comes from the catalog, not from the model. */
-export const PlacePlacement = z.strictObject({
-  kind: z.literal("beside"),
-  anchor: Ref,
-  side: Side,
-  gap: Metres(0, 20),
-  shift: Metres(-30, 30).default(0),
-});
+export const PlacePlacement = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("beside"),
+    anchor: Ref,
+    side: Side,
+    gap: Metres(0, 20),
+    shift: Metres(-30, 30).default(0),
+  }),
+  z.strictObject({
+    kind: z.literal("inside"),
+    anchor: z.union([Ref, z.literal("room")]),
+    side: Side,
+    gap: Metres(0, 20),
+    shift: Metres(-30, 30).default(0),
+  }),
+]);
 const Place = z.strictObject({
   op: z.literal("place"),
   id: StepId,
@@ -95,7 +115,7 @@ export const SCENE_FROM = ["north", "south", "east", "west", "northeast", "north
 const Scene = z.strictObject({
   op: z.literal("scene"),
   name: Label,
-  from: z.string().trim().regex(new RegExp(`^(R\\d{1,3}|${SCENE_FROM.join("|")})$`), 'a side of the room ("south", "northeast" ...), "above", or an item ref like "R6"'),
+  from: z.string().trim().regex(new RegExp(`^([RV]\\d{1,3}|${SCENE_FROM.join("|")})$`), 'a side of the room ("south", "northeast" ...), "above", or an item ref like "R6" or "V2"'),
   toward: Ref.optional(),
   eyeHeight: Metres(0.3, 3).default(1.6),
 });

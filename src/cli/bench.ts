@@ -50,7 +50,8 @@ async function main(): Promise<number> {
   const client = new BridgeClient(createTransport(config, args.includes("--mock"), { scene: "reception" }));
   const room = await findRoom(client, roomQuery);
   const summary = await summarizeRoom(client, { persistentId: room.persistentId });
-  const summaryText = renderSummary(summary);
+  // Sub-rooms the brief names list their parts; the others one line each (8k-token window).
+  const summaryText = renderSummary(summary, { focus: brief.changes.map((c) => c.text).join("\n") });
   writeFileSync(`${dir}/summary.md`, summaryText + "\n");
   opts.catalog = (await loadCatalog(client, {
     canMeasure: false,

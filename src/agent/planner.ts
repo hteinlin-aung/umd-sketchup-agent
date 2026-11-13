@@ -1,4 +1,4 @@
-import { runsWhichWay, type RoomSummary } from "../summary/roomSummary";
+import { measureOnlyItems, runsWhichWay, type RoomSummary } from "../summary/roomSummary";
 import type { Brief, BriefChange } from "./brief";
 import { renderCatalog, type Catalog } from "./catalog";
 import { ChangeAnswer, changeAnswerJsonSchema, type ChangeStep, type Draft, type DraftStep } from "./draft";
@@ -42,6 +42,11 @@ Operations:
       eastWest: the block's size from west to east. northSouth: its size from south to north.
         "4 m long running west" or "running east" -> eastWest 4. "3 m long (north-south)" -> northSouth 3.
       shift: slide it along that side, measured from the item's centre (+ = north/east, - = south/west). 0 = centred.
+    placement "inside" = INSIDE a room or SUB-ROOM (V1, V2 ...), against one of its sides ("in Therapy 1, against its north wall"):
+      {"kind":"inside","anchor":"V2","side":"north","gap":0.3,"eastWest":1.2,"northSouth":0.4,"shift":0}
+      side: the room's side it stands against. gap: clear distance from that side, measured INTO the room.
+      shift: slide it along that side from the room's centre (+ = north/east). anchor "room" = the whole room.
+      ("beside" a room puts the block OUTSIDE it.)
     placement "onTop" = sitting ON an earlier new block ("on the counter", "a top on ..."):
       {"kind":"onTop","of":"S1","overhang":0.05}   height is then the thickness.
 - {"op":"place","id":"S2","component":"<file name from COMPONENTS>","name":"...","placement":{"kind":"beside","anchor":"R1","side":"east","gap":0.5,"shift":0},"rotation":0,"base":0,"tag":"..."}
@@ -63,7 +68,8 @@ Operations:
 - {"op":"save","fileName":"..."}
 
 Rules:
-- Only use refs (R1, R2 ...) from the ROOM SUMMARY; pick the item whose name matches the brief's words.
+- Only use refs (R1, R2 ... and V1, V2 ...) from the ROOM SUMMARY; pick the item whose name matches the brief's words.
+- SUB-ROOMS (V refs) and their parts can be measured from, never taken out. "in <sub-room>" = placement "inside".
 - Use the brief's sizes exactly, in metres. Use the tag and material the brief's rules give.
 - Only build what the change asks to ADD. Taking something out is only a "replace": never build a new block for it,
   and never place a new block beside something that is being taken out.
@@ -98,7 +104,11 @@ The COMPONENTS list has "3DW_Fig tree potted.skp". New build ids: S8. Answer:
 {"type":"steps","steps":[{"op":"place","id":"S8","component":"3DW_Fig tree potted.skp","name":"Fig tree","placement":{"kind":"beside","anchor":"R4","side":"south","gap":0.4,"shift":1.0},"rotation":0,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}
 
 Example 6. Change: "1. Take out the old sofa (R2)." Answer:
-{"type":"steps","steps":[{"op":"replace","target":"R2"}],"reason":""}`;
+{"type":"steps","steps":[{"op":"replace","target":"R2"}],"reason":""}
+
+Example 7, INSIDE a sub-room. Change: "7. In Consult 2 (V3), a shelf against its east wall, 0.4 m deep, 2.0 m long, 1.8 m high,
+0.1 m off the wall." Against the east side: depth is eastWest 0.4, length runs north-south 2.0. Answer:
+{"type":"steps","steps":[{"op":"build","id":"S9","name":"Shelf","placement":{"kind":"inside","anchor":"V3","side":"east","gap":0.1,"eastWest":0.4,"northSouth":2.0,"shift":0},"height":1.8,"base":0,"tag":"Furniture (AGENT)"}],"reason":""}`;
 
 export type ChangeOutcome = {
   line: number;
@@ -186,7 +196,7 @@ export function briefPutsItThere(text: string, side: string, anchor: RoomSummary
 function shiftHint(answer: ChangeAnswer, clear: number): string {
   const widths: number[] = [];
   for (const st of answer.steps) {
-    if (st.op !== "build" || st.placement.kind !== "beside") continue;
+    if (st.op !== "build" || st.placement.kind === "onTop") continue;
     const p = st.placement;
     widths.push(p.side === "east" || p.side === "west" ? p.northSouth : p.eastWest);
   }
@@ -288,7 +298,7 @@ function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, 
 export function tidyScenes(json: unknown): unknown {
   const obj = json as { steps?: unknown } | null;
   if (!obj || typeof obj !== "object" || !Array.isArray(obj.steps)) return json;
-  const ref = (t: string) => /^r\d{1,3}$/i.test(t);
+  const ref = (t: string) => /^[rv]\d{1,3}$/i.test(t);
   const steps = obj.steps.map((raw) => {
     if (!raw || typeof raw !== "object" || (raw as { op?: unknown }).op !== "scene") return raw;
     const st = { ...(raw as Record<string, unknown>) };
@@ -316,14 +326,16 @@ export function namesToRefs(json: unknown, summary: RoomSummary, notes: string[]
   const obj = json as { steps?: unknown } | null;
   if (!obj || typeof obj !== "object" || !Array.isArray(obj.steps)) return json;
   const lookup = (value: unknown): unknown => {
-    if (typeof value !== "string" || /^r\d{1,3}$/i.test(value.trim())) return value;
+    if (typeof value !== "string" || /^[rv]\d{1,3}$/i.test(value.trim()) || value.trim() === "room") return value;
     const said = value.trim().replace(/^`|`$/g, "").toLowerCase();
     if (said.length < 4) return value;
-    const exact = summary.items.filter((it) => it.name.toLowerCase() === said);
-    const found = exact.length ? exact : summary.items.filter((it) => it.name.toLowerCase().startsWith(said));
+    // Sub-rooms and their parts too: "Therapy 1" -> V4 (a part name never equals a sub-room name, which is its start).
+    const all = [...summary.items, ...measureOnlyItems(summary)];
+    const exact = all.filter((it) => it.name.toLowerCase() === said);
+    const found = exact.length ? exact : all.filter((it) => it.name.toLowerCase().startsWith(said));
     if (found.length === 1) return found[0]!.ref;
     if (found.length > 1) notes.push(`"${value}" fits ${found.map((it) => `${it.ref} "${short(it.name)}"`).join(", ")}: use one of those refs`);
-    else notes.push(`"${value}" is not the name of an item in the room summary: use the R-number written before the item you mean`);
+    else notes.push(`"${value}" is not the name of an item in the room summary: use the R- or V-number written before the item you mean`);
     return value;
   };
   const steps = obj.steps.map((raw) => {
@@ -470,7 +482,8 @@ export function fillBase(json: unknown, change: BriefChange): unknown {
   const steps = obj.steps.map((raw) => {
     if (!raw || typeof raw !== "object") return raw;
     const st = raw as Record<string, unknown>;
-    const beside = (st.placement as { kind?: unknown } | undefined)?.kind === "beside";
+    const kind = (st.placement as { kind?: unknown } | undefined)?.kind;
+    const beside = kind === "beside" || kind === "inside";
     return st.op === "build" && beside && !("base" in st) ? { ...st, base: want } : raw;
   });
   return { ...obj, steps };
@@ -481,7 +494,7 @@ function raisedAsAsked(answer: ChangeAnswer, change: BriefChange): string[] {
   if (want === null) return [];
   const out: string[] = [];
   for (const st of answer.steps) {
-    if (st.op !== "build" || st.placement.kind !== "beside") continue;
+    if (st.op !== "build" || st.placement.kind === "onTop") continue;
     const base = st.base ?? 0;
     if (Math.abs(base - want) > 0.005) out.push(`the change puts the bottom of ${st.id} ${want} m above the floor: set "base": ${want} (now ${base})`);
   }
@@ -536,6 +549,15 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
       problems.push(`change ${change.line} puts it ON an earlier block: use "onTop" with that block's id, not "beside"`);
     }
   }
+  // "in Therapy 1" planned as "beside V4" lands OUTSIDE that room (the summary's sub-rooms are rooms, not objects).
+  const subRefs = new Map((summary.subRooms ?? []).map((r) => [r.ref, r.name]));
+  for (const st of answer.steps) {
+    if ((st.op !== "build" && st.op !== "place") || st.placement.kind !== "beside") continue;
+    const room = subRefs.get(st.placement.anchor);
+    if (room && !/\b(outside|beside|next to|in front of)\b/i.test(t)) {
+      problems.push(`${st.id} is "beside" ${st.placement.anchor} "${room}", which puts it OUTSIDE that room; to put it in the room use {"kind":"inside","anchor":"${st.placement.anchor}",...}`);
+    }
+  }
   // "along the east face of R8": the block's long side must run the same way as R8.
   if (/\balong\b/i.test(t)) {
     for (const st of answer.steps) {
@@ -555,7 +577,7 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
   const own = directionPhrases(t);
   for (const ph of own) {
     for (const st of answer.steps) {
-      if (st.op === "build" && st.placement.kind === "beside" && Math.abs(st.placement[ph.field] - ph.value) > 0.001) {
+      if (st.op === "build" && st.placement.kind !== "onTop" && Math.abs(st.placement[ph.field] - ph.value) > 0.001) {
         problems.push(`the brief says "${ph.text}", so ${st.id} needs ${ph.field} ${ph.value} (it has ${st.placement[ph.field]})`);
       }
     }
@@ -567,7 +589,7 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
   if (own.length === 0 && brief) {
     const others = brief.changes.filter((c) => c.line !== change.line).flatMap((c) => directionPhrases(c.text));
     for (const st of answer.steps) {
-      if (st.op !== "build" || st.placement.kind !== "beside") continue;
+      if (st.op !== "build" || st.placement.kind === "onTop") continue;
       const p = st.placement;
       for (const ph of others) {
         const otherField = ph.field === "eastWest" ? "northSouth" : "eastWest";

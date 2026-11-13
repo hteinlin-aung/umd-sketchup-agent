@@ -219,12 +219,31 @@ async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSumma
 
   const plan = resolve(current);
   const unresolved = await findCollisions(client, plan, summary);
-  for (const c of unresolved) {
+  for (const { c, n } of sameCollisions(unresolved)) {
     plan.errors.push(
-      `${c.step} collides with "${c.with}" (${c.path.join(" > ")}), overlap ${c.overlap.join(" x ")} m, and sliding it up to ${MAX_MOVE} m along its wall doesn't clear it: change the brief`,
+      `${c.step} collides with ${n > 1 ? `${n}x ` : ""}"${c.with}" (${c.path.join(" > ")}), overlap ${c.overlap.join(" x ")} m${n > 1 ? " (the biggest)" : ""}, and sliding it up to ${MAX_MOVE} m along its wall doesn't clear it: change the brief`,
     );
   }
   return { draft: current, plan, repairs, unresolved, exhausted: !stuck && unresolved.length > 0 };
+}
+
+/**
+ * Collisions of one block with copies of the same part, as one line each ("S1 collides with 13x oak fin").
+ * (Windows, 2026-11-14, brief 9: a bench 3 cm too close to a wall of oak fins gave 13 identical error lines.)
+ * The overlap kept is the biggest.
+ */
+export function sameCollisions(cs: Collision[]): { c: Collision; n: number }[] {
+  const out = new Map<string, { c: Collision; n: number }>();
+  for (const c of cs) {
+    const key = `${c.step}|${c.with}|${c.path.slice(0, -1).join(">")}`;
+    const had = out.get(key);
+    if (!had) out.set(key, { c, n: 1 });
+    else {
+      had.n++;
+      if (c.overlap.reduce((a, b) => a * b, 1) > had.c.overlap.reduce((a, b) => a * b, 1)) had.c = c;
+    }
+  }
+  return [...out.values()];
 }
 
 /**

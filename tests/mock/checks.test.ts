@@ -262,7 +262,7 @@ describe("test brief 6: the Week 3 done-when", () => {
     expect(checked.repairs).toEqual([]);
     expect(checked.unresolved.map((c) => c.step)).toEqual(["S1", "S1"]);
     expect(checked.exhausted).toBe(false);
-    expect(checked.plan.errors.join()).toMatch(/S1 collides with "UMD Column D500 1F colonnade".*change the brief/);
+    expect(checked.plan.errors.join()).toMatch(/S1 collides with 2x "UMD Column D500 1F colonnade".*change the brief/);
     const o = runOutcome({ planErrors: checked.plan.errors, repairsExhausted: checked.exhausted, moved: [], modelGaveUp: [], dry: false, declined: false, run: null });
     expect(o.outcome).toBe("BLOCKED");
     await expect(executePlan(client, checked.plan)).rejects.toThrow(/errors/);
