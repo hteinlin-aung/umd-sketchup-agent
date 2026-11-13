@@ -56,7 +56,7 @@ module UMDBridge
   end
 
   def self.version
-    '0.7.1'
+    '0.7.2'
   end
 
   def self.protocol

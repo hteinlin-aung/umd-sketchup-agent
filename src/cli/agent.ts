@@ -194,19 +194,33 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const run = await executePlan(
-    client,
-    plan,
-    (r) => console.log(`${r.ok ? "  ok " : "  FAILED"} [${r.n}] ${r.message} (${r.durationMs} ms)`),
-    async (built) => {
-      // Read everything back before saving: new blocks in place, nothing else in the room changed.
-      const after = await summarizeRoom(client, { persistentId: room.persistentId });
-      const v = await verifyRun(client, plan, summary, after, built);
-      checks.push(...v.lines.map((l) => `read-back: ${l}`));
-      console.log(`read-back before saving:\n${v.lines.map((l) => `  ${l}`).join("\n")}`);
-      return v.ok;
-    },
-  );
+  let run: Awaited<ReturnType<typeof executePlan>>;
+  try {
+    run = await executePlan(
+      client,
+      plan,
+      (r) => console.log(`${r.ok ? "  ok " : "  FAILED"} [${r.n}] ${r.message} (${r.durationMs} ms)`),
+      async (built) => {
+        // Read everything back before saving: new blocks in place, nothing else in the room changed.
+        const after = await summarizeRoom(client, { persistentId: room.persistentId });
+        const v = await verifyRun(client, plan, summary, after, built);
+        checks.push(...v.lines.map((l) => `read-back: ${l}`));
+        console.log(`read-back before saving:\n${v.lines.map((l) => `  ${l}`).join("\n")}`);
+        return v.ok;
+      },
+    );
+  } catch (e) {
+    if (!(e instanceof BridgeUnavailableError)) throw e;
+    // SketchUp didn't answer in time (Windows, 2026-11-14: a picture of the full MASTER copy took 341 s, the
+    // client gave up at 120 s, and the run ended with no report). It still ends with an outcome and a report.
+    const why = [
+      `SketchUp did not answer in time: ${e.message}`,
+      "nothing was saved; the actions before it are in the open model, so close it WITHOUT saving",
+    ];
+    writeFileSync(`${dir}/report.md`, renderReport({ brief: brief.text, summaryText, plan, run: null, model: modelName, checks, outcome: { outcome: "BLOCKED", why } }));
+    console.log(`\nOUTCOME: BLOCKED\n${why.map((w) => `  - ${w}`).join("\n")}\nReport: ${dir}/report.md`);
+    return 1;
+  }
   const outcome = finish(run);
   console.log(
     run.stoppedAt === null

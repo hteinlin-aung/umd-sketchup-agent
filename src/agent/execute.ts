@@ -83,6 +83,9 @@ export async function executePlan(
       imagePaths.push(String(data.path));
       message = `image ${String(data.path)}`;
     }
+    // What SketchUp said besides "ok" (e.g. "shadows were on and are now OFF") belongs in the report too.
+    const said = (res.warnings ?? []).filter((w) => !message.includes(w));
+    if (said.length) message += ` - NOTE: ${said.join("; ")}`;
     const r = { n: a.n, ok: true, message, durationMs };
     results.push(r);
     onResult(r);

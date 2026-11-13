@@ -67,7 +67,7 @@ class ComponentToolsTest < Minitest::Test
     assert_equal :read, UMDBridge.tools['listComponents']
     assert_equal :write, UMDBridge.tools['componentInfo']
     assert_equal :write, UMDBridge.tools['placeComponent']
-    assert_equal '0.7.1', UMDBridge.version
+    assert_equal '0.7.2', UMDBridge.version
     assert_equal :read, UMDBridge.tools['componentPreview']
   end
 end

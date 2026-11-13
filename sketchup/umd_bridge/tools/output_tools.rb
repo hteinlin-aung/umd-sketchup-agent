@@ -11,6 +11,17 @@ module UMDBridge
 
       c = view.camera
       saved = Sketchup::Camera.new(c.eye, c.target, c.up, c.perspective?, c.fov)
+      # A check picture, not a render (D5 renders): no shadows. With shadows on, SketchUp works them out for the
+      # whole model, floors above included - on the full MASTER copy one picture took 341 s instead of 11 s
+      # (Windows, 2026-11-14). They are NOT switched back on: that makes SketchUp redraw the live view with shadows,
+      # which froze it for about 2 minutes and cancelled the next command. Only the open dev model and its saved
+      # copy are affected (the MASTER is never opened for changes); scenes keep their own shadow settings.
+      shadows = model.shadow_info
+      if shadows['DisplayShadows']
+        shadows['DisplayShadows'] = false
+        ctx[:warnings] << 'shadows were on and are now OFF in the open model (too slow to draw on a big model); ' \
+                          'turn them on again in Window > Shadows if you need them'
+      end
       begin
         if args['scene']
           page = model.pages[args['scene']]

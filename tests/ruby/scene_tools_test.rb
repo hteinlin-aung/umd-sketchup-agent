@@ -3,6 +3,7 @@
 # hidden tags are reported. Whether D5 picks the scene up is tested on Windows.
 require 'minitest/autorun'
 require_relative 'fake_sketchup'
+require 'tmpdir'
 
 Z_AXIS = Geom::Vector3d.new(0, 0, 1) unless defined?(Z_AXIS)
 
@@ -20,7 +21,13 @@ class Sketchup::Camera
 end
 
 class FakeView
-  attr_accessor :camera
+  attr_accessor :camera, :model
+  attr_reader :shadows_when_drawn
+  def write_image(opts)
+    @shadows_when_drawn = model.shadow_info['DisplayShadows']
+    File.write(opts[:filename], 'png')
+    true
+  end
 end
 
 class FakePage
@@ -42,12 +49,46 @@ class SceneModel < FakeModel
   def initialize(path, scenes)
     super(path)
     @active_view = FakeView.new
+    @active_view.model = self
+    @shadow_info = { 'DisplayShadows' => false }
     @active_view.camera = Sketchup::Camera.new(Geom::Point3d.new(0, 0, 0), Geom::Point3d.new(1, 0, 0), Z_AXIS, true, 35)
     @pages = FakePages.new(@active_view, scenes)
     @layers = [FakeLayer.new('Layer0'), FakeLayer.new('1F Reception - Lighting (T128)', false)]
   end
 
   def layers; @layers; end
+  attr_reader :shadow_info
+end
+
+# Windows, 2026-11-14: on the full MASTER copy, with shadows on, one check picture took 341 s instead of 7 s.
+class CaptureViewShadowsTest < Minitest::Test
+  def setup
+    @model = SceneModel.new('E:/x/dev/UMD_DEV_FULL_copy.skp', [])
+    Sketchup.active_model = @model
+    @dir = Dir.mktmpdir
+    Dir.mkdir(File.join(@dir, 'images'))
+    @ctx = { warnings: [], queue_dir: @dir }
+  end
+
+  def capture(name)
+    args = UMDBridge::Validate.captureView('fileName' => name, 'camera' => { 'eye' => [0, 0, 1.6], 'target' => [5, 0, 1.6] })
+    UMDBridge::Tools.captureView(args, @ctx)
+  end
+
+  # Putting them back made SketchUp redraw the live view with shadows and froze it for ~2 minutes (Windows, 2026-11-14).
+  def test_takes_the_picture_without_shadows_and_leaves_them_off_with_a_warning
+    @model.shadow_info['DisplayShadows'] = true
+    capture('a.png')
+    assert_equal false, @model.active_view.shadows_when_drawn
+    assert_equal false, @model.shadow_info['DisplayShadows']
+    assert_match(/now OFF in the open model/, @ctx[:warnings].join)
+  end
+
+  def test_leaves_shadows_off_and_says_nothing_when_they_were_off
+    capture('b.png')
+    assert_equal false, @model.shadow_info['DisplayShadows']
+    assert_empty @ctx[:warnings]
+  end
 end
 
 class SceneToolsTest < Minitest::Test
