@@ -1,0 +1,15 @@
+{
+  "steps": [
+    { "op": "build", "line": 1, "id": "S1", "name": "Genkan bench (breathing) - light oak",
+      "placement": { "kind": "beside", "anchor": "R2", "side": "north", "gap": 0.14, "eastWest": 2.0, "northSouth": 0.35, "shift": 5.2 },
+      "height": 0.45, "base": 0, "tag": "1F Meditation - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "build", "line": 2, "id": "S2", "name": "Genkan bench (meditation) - light oak",
+      "placement": { "kind": "beside", "anchor": "R1", "side": "north", "gap": 0.14, "eastWest": 2.0, "northSouth": 0.35, "shift": -5.4 },
+      "height": 0.45, "base": 0, "tag": "1F Meditation - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "screenshot", "line": 5 },
+    { "op": "save", "line": 5, "fileName": "UMD_DEV_1F_meditation_build.skp" }
+  ],
+  "notDone": []
+}
