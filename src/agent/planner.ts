@@ -356,7 +356,7 @@ export function checkAnswer(
     return { answer: null, problems: ["the answer is not valid JSON"] };
   }
   const nameNotes: string[] = [];
-  const parsed = ChangeAnswer.safeParse(namesToRefs(tidyScenes(json), summary, nameNotes));
+  const parsed = ChangeAnswer.safeParse(fillBase(namesToRefs(tidyScenes(json), summary, nameNotes), change));
   if (!parsed.success) {
     return { answer: null, problems: [...nameNotes, ...parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`)] };
   }
@@ -435,10 +435,34 @@ export function checkAnswer(
  * the hint "check eastWest/northSouth and shift" pointed at the wrong fields.) Only for blocks placed beside an
  * item: "onTop" ignores base. Only when the change names exactly one height above the floor.
  */
-function raisedAsAsked(answer: ChangeAnswer, change: BriefChange): string[] {
+/** The one height above the floor a change names ("its underside 1.5 m above the floor"), or null. */
+function heightAboveFloor(change: BriefChange): number | null {
   const heights = [...change.text.matchAll(/(\d+(?:\.\d+)?)\s*m\s+above\s+the\s+floor/gi)].map((m) => Number(m[1]));
-  if (new Set(heights).size !== 1) return [];
-  const want = heights[0]!;
+  return new Set(heights).size === 1 ? heights[0]! : null;
+}
+
+/**
+ * A raised block whose answer leaves "base" OUT gets the height the change names. (Windows, 2026-11-14, brief 7,
+ * run 014222: told 'set "base": 1.5', qwen3:8b sent the identical answer again, without base - it never uses an
+ * optional field it has not seen used, and every prompt example has base 0.) The code knows the value, so it fills
+ * it in. A base the model DID write, but different, is not overwritten: raisedAsAsked replies instead.
+ */
+export function fillBase(json: unknown, change: BriefChange): unknown {
+  const want = heightAboveFloor(change);
+  const obj = json as { steps?: unknown } | null;
+  if (want === null || !obj || typeof obj !== "object" || !Array.isArray(obj.steps)) return json;
+  const steps = obj.steps.map((raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const st = raw as Record<string, unknown>;
+    const beside = (st.placement as { kind?: unknown } | undefined)?.kind === "beside";
+    return st.op === "build" && beside && !("base" in st) ? { ...st, base: want } : raw;
+  });
+  return { ...obj, steps };
+}
+
+function raisedAsAsked(answer: ChangeAnswer, change: BriefChange): string[] {
+  const want = heightAboveFloor(change);
+  if (want === null) return [];
   const out: string[] = [];
   for (const st of answer.steps) {
     if (st.op !== "build" || st.placement.kind !== "beside") continue;
