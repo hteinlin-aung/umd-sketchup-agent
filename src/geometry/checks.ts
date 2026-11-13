@@ -65,6 +65,8 @@ export async function findCollisions(client: BridgeClient, plan: Plan, summary: 
     // A group whose outer box overlaps while none of its parts do is empty space (the Lounge bay's box
     // reaches the bench, its sofas don't).
     if (res.data.truncated) throw new Error(`collision check for ${a.builds}: too many parts in its box to check them all`);
+    // A search that stopped at the bridge's scan limit saw only part of the model: "no collision" would be a guess.
+    if (res.data.scanLimitHit) throw new Error(`collision check for ${a.builds}: the model was too big to search completely, so it was not checked`);
     const leaves = live.filter((m) => m.childCount === 0 || m.depth >= 6);
     for (const m of leaves) {
       const overlap = [0, 1, 2].map((i) => Math.min(box.max[i]!, m.bounds.max[i]!) - Math.max(box.min[i]!, m.bounds.min[i]!)) as [number, number, number];

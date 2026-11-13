@@ -40,9 +40,12 @@ module UMDBridge
           hit = (want_name.nil? || e.name.to_s.downcase.include?(want_name) || e.definition.name.to_s.downcase.include?(want_name)) &&
                 (want_tag.nil? || e.layer.name.downcase == want_tag) &&
                 type_matches?(e, args['type'])
-          if hit && args['touches']
+          if args['touches']
             bb = Geo.world_bbox(e, wt)
-            hit = Geo.overlaps?(bb, args['touches'])
+            # Everything inside a group lies inside its box: if the box misses, so does everything in it, so don't
+            # look inside. (Windows, 2026-11-13: without this a maxDepth 6 search of the whole model hit SCAN_LIMIT
+            # before it reached the B2 timber screen, and the collision check missed the real slats.)
+            next unless Geo.overlaps?(bb, args['touches'])
           end
           if hit
             if state[:matches].length < args['limit']

@@ -35,6 +35,17 @@ describe("collision checks against the real parts", () => {
     expect(await findCollisions(client, resolve(REF), summary)).toEqual([]);
   });
 
+  // Windows, 2026-11-13: a search that stopped at the bridge's scan limit returned no matches, and the check said
+  // "no new block cuts into any real part" while the bench stood in the B2 timber screen.
+  it("a search that hit the scan limit is an error, never 'no collision'", async () => {
+    const { client, summary, resolve } = await setup();
+    const limited = {
+      call: async (tool: string, args: unknown) =>
+        tool === "findEntities" ? { ok: true, data: { matches: [], truncated: false, scanned: 30000, scanLimitHit: true } } : client.call(tool as never, args as never),
+    } as unknown as BridgeClient;
+    await expect(findCollisions(limited, resolve(REF), summary)).rejects.toThrow(/too big to search completely/);
+  });
+
   it("drops the 'outer boxes overlap' warning when no real part collides (bench vs Lounge bay)", async () => {
     const { client, summary, resolve } = await setup();
     const { plan } = await checkAndRepair(client, REF, summary, resolve);

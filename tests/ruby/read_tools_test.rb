@@ -107,6 +107,19 @@ class ReadToolsTest < Minitest::Test
     refute_includes names, 'Reception ceiling'
   end
 
+  # Windows, 2026-11-13: a deep "touches" search walked every group in the model and stopped at SCAN_LIMIT before
+  # reaching the part that was really in the box. A group whose box misses is not looked inside.
+  def test_touches_does_not_look_inside_groups_that_miss
+    far = FakeGroup.new('far wing', bounds: { 'min' => [100, 100, 0], 'max' => [110, 110, 5] },
+                                    children: Array.new(50) { |i| FakeGroup.new("far part #{i}", bounds: { 'min' => [100, 100, 0], 'max' => [101, 101, 1] }) })
+    @model = TreeModel.new('E:/x/dev/UMD_DEV_1F.skp', [@floor, far])
+    Sketchup.active_model = @model
+    r = find('touches' => { 'min' => [12, 6, 1.5], 'max' => [12.5, 6.2, 1.6] }, 'maxDepth' => 6)
+    assert_includes r['matches'].map { |m| m['name'] }, 'Reception bench - light oak'
+    assert_operator r['scanned'], :<, 20
+    refute r['scanLimitHit']
+  end
+
   def test_within_searches_inside_one_group
     r = find('within' => { 'path' => ['UMD 1F', '1F RECEPTION (T128)'] })
     assert_equal ['Reception bench - light oak', 'Reception ceiling'], r['matches'].map { |m| m['name'] }
