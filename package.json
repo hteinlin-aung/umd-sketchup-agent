@@ -21,7 +21,8 @@
     "summary": "tsx src/cli/summary.ts",
     "agent": "tsx src/cli/agent.ts",
     "bench": "tsx src/cli/bench.ts",
-    "components": "tsx src/cli/components.ts"
+    "components": "tsx src/cli/components.ts",
+    "ui": "tsx src/cli/ui.ts"
   },
   "dependencies": {
     "zod": "4.6.7"

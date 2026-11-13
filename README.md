@@ -93,6 +93,13 @@ npm run summary -- "1F MEDITATION"
 It prints every item in the room with a ref (`R1`, `R2`, …), its box and what is really inside it.
 **You can only measure from items in this list.** Names can be wrong ("Sofa set 4" holds a palm), so check the contents.
 
+**Sub-rooms.** Some groups are organised by trade, not by room: in `3F THERAPY + PSYCHIATRIST INTERIOR (T124)`
+one item holds every door, another every floor finish. For those, the summary makes **sub-rooms from the names**
+(`V1` Group therapy, `V2`–`V3` Psychiatrist 1–2, `V4`–`V6` Therapy 1–3). A sub-room's outline is its floor finish,
+and its parts (doors, fins, furniture) are listed under it, so you can measure from them. Sub-rooms and their parts
+are never moved or taken out. Example brief: `instructions/3F_therapy1_inside.md`.
+Not yet: a scene can't stand inside a sub-room (it uses the whole group's sides).
+
 ### The shape of a brief
 
 ```markdown
@@ -128,6 +135,7 @@ Each numbered change becomes one kind of step:
 |---|---|---|
 | "A light oak bench … 6.0 m long, 0.5 m deep, 0.45 m high, on the east side of `X`, 1.2 m gap, centred" | **build** a block | Position = an item, a side (north/south/east/west), a gap, and an optional shift ("shifted 3.0 m north of its centre") |
 | "A thin top on the counter, 0.05 m overhang" | **build** on top of another block | |
+| "In `Therapy 1`, a light oak bench against its south wall, 0.1 m off the wall, 2.4 m long (east-west), 0.4 m deep, 0.45 m high, shifted 2.485 m west of the room's centre" | **build** *inside* a room | Against one side of a room or sub-room; the gap is measured **inward**. A piece that would poke out of the room is an error |
 | "Place the potted money tree component 0.3 m east of `X`" | **place** a component | Size comes from the component file, fitted to a sensible size |
 | "Take out `Sofa set 4`" | **replace** | Moved to a hidden `zz_REPLACED` tag, never deleted |
 | "Hide / show the tag `…`" | **hideTag / showTag** | |
@@ -141,8 +149,8 @@ Each numbered change becomes one kind of step:
 - Directions follow SketchUp: east = +X (red), north = +Y (green), up = +Z (blue).
 - Things stand on the floor level (1F 1.489, 2F 5.479, 3F 10.979 m). **Raised floors (like the tatami
   platforms) are not known yet**, so don't build on them.
-- The planner can only put a piece *beside* or *on top of* an item, not "inside a room, against its wall".
-  Measure from an item near the wall instead.
+- "Beside" a room puts a piece **outside** it. For a piece in the room, write "In `<room>`, against its north wall".
+- Start every change that is in one room with "In `<room>`", using the room's name exactly as the summary shows it.
 - Put ideas the tools can't do yet under "Later".
 
 ---
@@ -224,6 +232,24 @@ npm run agent -- instructions/1F_reception.md "1F RECEPTION" --mock --draft inst
 | `saveCopy` | saves | Saves a new copy next to the model |
 
 ---
+
+## 5b. The agent page (instead of typing in PowerShell)
+
+```powershell
+npm run ui
+```
+Then open **http://127.0.0.1:4477** in a browser. Keep the PowerShell window open; Ctrl+C stops the page.
+
+- Pick a brief (the room fills in from the brief's `Room group:` line), then **Plan only** or **Plan and build**.
+- "Plan made by": the AI model, or a draft already written in `instructions/` (no AI).
+- The steps light up as the run goes (Model → Room → Plan → Choose → Check → Approve → Build → Read-back → Outcome),
+  and every line the agent prints appears live, with pictures where it names a `.png`.
+- "Which one do you like?" shows the candidates as pictures with buttons. The plan shows **Yes, build it / No, stop**.
+- At the end you see the outcome, the reasons, and `report.md`. Earlier runs are listed on the left.
+
+The page only starts the same `npm run agent` command and answers its questions, so it can do nothing the
+command line can't. It is reachable only from this computer. One run at a time.
+(Coming: the same page as a panel inside SketchUp, Extensions ▸ UMD Bridge ▸ Agent panel.)
 
 ## 6. If something goes wrong
 
