@@ -21,6 +21,7 @@ load File.join(dir, 'tools', 'build_tools.rb')
 load File.join(dir, 'tools', 'output_tools.rb')
 load File.join(dir, 'tools', 'inspect_tools.rb')
 load File.join(dir, 'tools', 'component_tools.rb')
+load File.join(dir, 'panel.rb')
 
 module UMDBridge
   FOLDERS = %w[in working out done cancelled images].freeze
@@ -56,7 +57,7 @@ module UMDBridge
   end
 
   def self.version
-    '0.7.2'
+    '0.8.0'
   end
 
   def self.protocol
@@ -99,18 +100,31 @@ module UMDBridge
     was_running = running?
     stop
     load File.join(@sketchup_dir, 'umd_bridge', 'main.rb')
+    install_menu
     start if was_running
     puts "[UMD Bridge #{version}] reloaded"
   end
 
   def self.install_menu
-    return if @menu_installed
+    if @menu_installed
+      # A SketchUp that loaded an older bridge has the submenu without the panel, and a submenu can't be found
+      # again to add to it. So "Reload (after git pull)" adds the panel straight under Extensions; after the
+      # next SketchUp start it sits in the submenu like the rest.
+      unless @panel_item_installed
+        UI.menu('Extensions').add_item('UMD Agent panel') { UMDBridge::Panel.show }
+        @panel_item_installed = true
+      end
+      return
+    end
     m = UI.menu('Extensions').add_submenu('UMD Bridge')
     m.add_item('Start') { UMDBridge.start }
     m.add_item('Stop') { UMDBridge.stop }
     m.add_item('Reload (after git pull)') { UMDBridge.reload }
     m.add_item('Status') { UI.messagebox(UMDBridge.status_text) }
     m.add_item('Open queue folder') { UI.openURL("file:///#{@queue_dir}") }
+    m.add_separator if m.respond_to?(:add_separator)
+    m.add_item('Agent panel') { UMDBridge::Panel.show } # the agent's page (npm run ui) inside SketchUp
+    @panel_item_installed = true
     @menu_installed = true
   end
 

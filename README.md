@@ -209,7 +209,7 @@ npm run test:ruby    # Ruby tests with a fake SketchUp
 npm run agent -- instructions/1F_reception.md "1F RECEPTION" --mock --draft instructions/1F_reception.draft.json
 ```
 
-### The tools (bridge 0.7.0)
+### The tools (bridge 0.8.0)
 
 | Tool | Changes the model? | What it does |
 |---|---|---|
@@ -249,7 +249,12 @@ Then open **http://127.0.0.1:4477** in a browser. Keep the PowerShell window ope
 
 The page only starts the same `npm run agent` command and answers its questions, so it can do nothing the
 command line can't. It is reachable only from this computer. One run at a time.
-(Coming: the same page as a panel inside SketchUp, Extensions ▸ UMD Bridge ▸ Agent panel.)
+**Inside SketchUp:** Extensions ▸ UMD Bridge ▸ **Agent panel** shows the same page in a SketchUp window
+(bridge 0.8.0). Start `npm run ui` first; if the page isn't running, the panel says so and checks again every
+5 seconds (or press Reload). Only one panel: opening it again brings it to the front. Closing the panel stops
+nothing - the run goes on, and the page in a browser or a reopened panel shows it again.
+After a `git pull` with bridge 0.7.x still loaded, "Reload (after git pull)" puts the item straight under
+Extensions as **UMD Agent panel**; after the next SketchUp start it is in the UMD Bridge submenu.
 
 ## 6. If something goes wrong
 

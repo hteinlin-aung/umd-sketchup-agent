@@ -159,4 +159,47 @@ end
 def file_loaded?(*_a); false; end
 def file_loaded(*_a); nil; end
 
+# ---------- the Agent panel's dialog (panel.rb) ----------
+class RecordingMenu
+  attr_reader :items
+  def initialize; @items = []; end
+  def add_submenu(*_a); self; end
+  def add_item(name, &_b); @items << name; nil; end
+end
+
+module UI
+  class HtmlDialog
+    STYLE_DIALOG = :dialog
+  end
+end
+
+class FakeHtmlDialog
+  class << self; attr_accessor :created; end
+  self.created = 0
+  attr_reader :options, :url, :html, :html_sets, :fronted
+  def initialize(options)
+    self.class.created += 1
+    @options = options
+    @callbacks = {}
+    @visible = false
+    @html_sets = 0
+    @fronted = 0
+  end
+  def add_action_callback(name, &b); @callbacks[name] = b; end
+  def set_on_closed(&b); @on_closed = b; end
+  def set_url(u); @url = u; @html = nil; end
+  def set_html(h); @html = h; @url = nil; @html_sets += 1; end
+  def show; @visible = true; end
+  def visible?; @visible; end
+  def bring_to_front; @fronted += 1; end
+  def close; @visible = false; @on_closed&.call; end
+  def call(name); @callbacks.fetch(name).call(nil); end
+end
+
+module UI
+  class HtmlDialog
+    def self.new(options); FakeHtmlDialog.new(options); end
+  end
+end
+
 load File.join(__dir__, '..', '..', 'sketchup', 'umd_bridge', 'main.rb')
