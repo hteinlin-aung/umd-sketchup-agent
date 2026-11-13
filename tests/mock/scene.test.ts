@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DraftStep } from "../../src/agent/draft";
 import { executePlan } from "../../src/agent/execute";
 import { checkAnswer } from "../../src/agent/planner";
-import { resolveDraft, sceneCamera } from "../../src/agent/resolve";
+import { resolveDraft, sceneCamera, segmentHitsBox } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
 import { summarizeRoom } from "../../src/summary/roomSummary";
@@ -103,6 +103,21 @@ describe("resolveDraft: scene steps", () => {
     expect(a.details.join()).toMatch(/keeps these tags hidden: .*Lighting/);
   });
 
+  it("warns when the item it looks at is hidden behind another, and names the sides with a clear view (Windows, 2026-11-13)", async () => {
+    const { summary } = await setup();
+    const steps = [scene("northwest", { toward: "R1", eyeHeight: 1.1 }), SAVE];
+    const a = resolveDraft({ steps, notDone: [] }, summary, OPTS).actions.find((x) => x.tool === "addScene")!;
+    const w = a.warnings.join("\n");
+    expect(w).toMatch(/the view of R1 is blocked by R8 "Terrarium E/);
+    expect(w).toMatch(/a clear view of it: from .*\beast\b/);
+  });
+
+  it("no warning when nothing stands in between", async () => {
+    const { summary } = await setup();
+    const a = resolveDraft({ steps: [scene("east", { toward: "R1" }), SAVE], notDone: [] }, summary, OPTS).actions.find((x) => x.tool === "addScene")!;
+    expect(a.warnings.join()).not.toMatch(/blocked/);
+  });
+
   it("must come before the save, or the copy wouldn't have it", async () => {
     const { summary } = await setup();
     const plan = resolveDraft({ steps: [SAVE, scene("south")], notDone: [] }, summary, OPTS);
@@ -160,5 +175,18 @@ describe("running a scene step (mock bridge)", () => {
     expect(run.stoppedAt).toBeNull();
     expect(sketchup.scenes).toContain("1F Reception (2)");
     expect(run.results[0]!.message).toMatch(/scene "1F Reception \(2\)" \(the name was taken\)/);
+  });
+});
+
+describe("segmentHitsBox", () => {
+  const box = { min: [0, 0, 0] as [number, number, number], max: [1, 1, 1] as [number, number, number] };
+  it.each([
+    ["straight through", [-1, 0.5], [2, 0.5], true],
+    ["diagonal through a corner", [-1, -1], [2, 2], true],
+    ["passing beside", [-1, 2], [2, 2], false],
+    ["stopping short", [-2, 0.5], [-0.1, 0.5], false],
+    ["vertical line beside", [1.5, -1], [1.5, 2], false],
+  ] as const)("%s", (_n, p, q, hit) => {
+    expect(segmentHitsBox([p[0], p[1]], [q[0], q[1]], box)).toBe(hit);
   });
 });

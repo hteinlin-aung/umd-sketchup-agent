@@ -260,6 +260,21 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
             if (inside({ min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] })) warnings.push(`the camera stands inside ${id} "${b.name}" from this plan`);
           }
         }
+        // Is the item the view looks at hidden behind something? (Windows, 2026-11-13: the "seated" view of Terrarium A
+        // looked straight through Terrarium E.) Boxes at eye height only, so it is a warning: look at the scene.
+        if (step.toward && step.from !== "above") {
+          const blockers = sightBlockers(cam.eye, cam.target, step, summary, built);
+          if (blockers.length) {
+            const clear = Object.keys(COMPASS).filter((side) => {
+              const other = sceneCamera({ ...step, from: side }, summary, refs, []);
+              return other && sightBlockers(other.eye, other.target, { ...step, from: side }, summary, built).length === 0;
+            });
+            warnings.push(
+              `the view of ${step.toward} is blocked by ${blockers.join(", ")} (boxes at eye height: look at the scene)` +
+                (clear.length ? `; a clear view of it: from ${clear.join(", ")}` : "; no side of the room has a clear view of it"),
+            );
+          }
+        }
         add({
           line: step.line,
           title: `SCENE "${step.name}"  (${cam.what})`,
@@ -302,6 +317,47 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   if (!actions.some((a) => a.tool === "saveCopy")) errors.push("the plan never saves a copy, so the result would be lost");
 
   return { runId: opts.runId, jobGroup, floorZ, modelPath: summary.modelPath, actions, errors, notDone: draft.notDone };
+}
+
+/** Does the flat line from p to q cross the box's footprint? (slab test; touching an edge counts) */
+export function segmentHitsBox(p: [number, number], q: [number, number], b: Bounds): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  for (let i = 0; i < 2; i++) {
+    const d = q[i]! - p[i]!;
+    if (Math.abs(d) < 1e-12) {
+      if (p[i]! < b.min[i]! || p[i]! > b.max[i]!) return false;
+      continue;
+    }
+    let a = (b.min[i]! - p[i]!) / d;
+    let c = (b.max[i]! - p[i]!) / d;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a);
+    t1 = Math.min(t1, c);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/** Items (and new blocks) standing between the camera and what it looks at, at eye height. */
+function sightBlockers(
+  eye: [number, number, number],
+  target: [number, number, number],
+  step: { from: string; toward?: string },
+  summary: RoomSummary,
+  built: Map<string, Built>,
+): string[] {
+  const [ex, ey, ez] = eye;
+  const blocks = (b: Bounds) => ez > b.min[2] && ez < b.max[2] && segmentHitsBox([ex, ey], [target[0], target[1]], b);
+  const out: string[] = [];
+  for (const it of summary.items) {
+    if (!it.visible || it.ref === step.toward || it.ref === step.from) continue;
+    const b = it.bounds;
+    if (ex >= b.min[0] && ex <= b.max[0] && ey >= b.min[1] && ey <= b.max[1]) continue; // a whole-area group the camera stands in
+    if (blocks(b)) out.push(`${it.ref} "${short(it.name)}"`);
+  }
+  for (const [id, b] of built) if (blocks({ min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] })) out.push(`${id} "${b.name}" from this plan`);
+  return out;
 }
 
 const SCENE_INSET = 0.6; // the camera stands this far in from the side of the room (clear of a wall)
