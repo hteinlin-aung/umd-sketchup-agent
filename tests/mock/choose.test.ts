@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadCatalog } from "../../src/agent/catalog";
-import { chooseComponents, similarComponents } from "../../src/agent/choose";
+import { chooseComponents, componentName, similarComponents } from "../../src/agent/choose";
 import type { Draft, DraftStep } from "../../src/agent/draft";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
@@ -45,7 +45,33 @@ describe("which one do you like?", () => {
     expect(shown[0]).toMatch(/\[2\] 3DW_coffee_table_marble_round\.skp\n {6}0\.63 x 0\.62 x 0\.42 m .*resized from a file drawn at the wrong scale/);
     expect(shown[0]).toMatch(/preview: MOCK\/images\/previews\/3DW_coffee_table_marble_round\.png/);
     expect((out.draft.steps[0] as { component: string }).component).toBe("3DW_coffee_table_marble_round.skp");
-    expect(out.choices).toEqual([{ step: "S1", line: 1, picked: "3DW_coffee_table_marble_round.skp", from: ["3DW_Round marble coffee table.skp", "3DW_coffee_table_marble_round.skp"] }]);
+    expect(out.choices).toEqual([
+      {
+        step: "S1",
+        line: 1,
+        picked: "3DW_coffee_table_marble_round.skp",
+        from: ["3DW_Round marble coffee table.skp", "3DW_coffee_table_marble_round.skp"],
+        renamed: { from: "S1", to: "Coffee table marble round" },
+      },
+    ]);
+  });
+
+  it("renames a step to what was actually picked (no 'Money tree' that is a fittonia)", async () => {
+    const { client, catalog } = await setup();
+    const out = await chooseComponents(client, draftOf({ ...place("S1", 1, "3DW_Money tree potted.skp"), name: "Money tree" } as DraftStep), catalog, designer(["2"]).ask, () => {});
+    expect(out.draft.steps[0]).toMatchObject({ component: "3DW_Fittonia potted.skp", name: "Fittonia potted" });
+    expect(out.choices[0]!.renamed).toEqual({ from: "Money tree", to: "Fittonia potted" });
+  });
+
+  it.each([
+    ["3DW_fittonia_SashaAlonso.skp", "Fittonia"],
+    ["3DW_money_tree_Pachira_VitorB_86654.skp", "Money tree Pachira"],
+    ["3DW_coffee_table_marble_round.skp", "Coffee table marble round"],
+    ["3DW_banyan_tree_3D_MananC.skp", "Banyan tree"],
+    ["ZEN+GARDEN3DW_zen_garden_Finkong.skp", "Zen garden Finkong"],
+    ["3DW_SPACESCAN_tree_trunk_roots_9983.skp", "Tree trunk roots"],
+  ])("names %s as %s", (file, name) => {
+    expect(componentName(file)).toBe(name);
   });
 
   it("Enter keeps the agent's pick", async () => {

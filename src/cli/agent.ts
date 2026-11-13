@@ -108,7 +108,11 @@ async function main(): Promise<number> {
     draft = chosen.draft;
     if (chosen.choices.length) {
       writeFileSync(`${dir}/choices.json`, JSON.stringify(chosen.choices, null, 2));
-      for (const c of chosen.choices) chosenLines.push(`CHOSEN ${c.step} (brief line ${c.line}): ${c.picked}  (from ${c.from.join(", ")})`);
+      for (const c of chosen.choices) {
+        chosenLines.push(
+          `CHOSEN ${c.step} (brief line ${c.line}): ${c.picked}  (from ${c.from.join(", ")})${c.renamed ? `; renamed "${c.renamed.from}" -> "${c.renamed.to}"` : ""}`,
+        );
+      }
       writeFileSync(`${dir}/draft.json`, JSON.stringify(draft, null, 2));
     }
   }

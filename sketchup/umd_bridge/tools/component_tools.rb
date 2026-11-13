@@ -33,12 +33,33 @@ module UMDBridge
       { 'folder' => dir, 'files' => files.map { |f| { 'file' => f, 'bytes' => File.size(File.join(dir, f)) } } }
     end
 
-    # Loads the definition (or finds it if the model already has it). Returns [definition, newly_loaded].
+    # Loads the definition, or reuses the one the model already has. Returns [definition, newly_loaded].
+    #
+    # SketchUp sometimes loads a second copy ("3DW Fittonia (Sasha Alonso)#1") of a component the model
+    # already holds (Windows, 2026-11-12). Then the existing one is used and the new copy removed: same
+    # component ID, or the same name (without "#1") and the same size to the millimetre.
     def load_definition(model, path)
       before = model.definitions.to_a
       defn = model.definitions.load(path)
       raise ToolError.new('TOOL_ERROR', "SketchUp could not load #{File.basename(path)}") unless defn
-      [defn, !before.include?(defn)]
+      return [defn, false] if before.include?(defn)
+
+      twin = before.find { |d| same_component?(d, defn) }
+      if twin && defn.instances.empty?
+        model.definitions.remove(defn)
+        return [twin, false]
+      end
+      [defn, true]
+    end
+
+    def same_component?(old, new)
+      return false if old.group? || old.image?
+      return true if old.guid == new.guid
+      base = ->(n) { n.to_s.sub(/#\d+\z/, '') }
+      return false unless base.call(old.name) == base.call(new.name)
+      a = old.bounds
+      b = new.bounds
+      [[a.width, b.width], [a.height, b.height], [a.depth, b.depth]].all? { |p, q| (Geo.i2m(p) - Geo.i2m(q)).abs < 0.001 }
     end
 
     def size_m(defn)

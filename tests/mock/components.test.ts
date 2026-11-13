@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scorePlan } from "../../src/agent/bench";
-import { fitComponent, loadCatalog, plausibility, renderCatalog, turnedSize } from "../../src/agent/catalog";
+import { fitComponent, fitProblem, loadCatalog, plausibility, renderCatalog, turnedSize } from "../../src/agent/catalog";
 import type { DraftStep } from "../../src/agent/draft";
 import { executePlan } from "../../src/agent/execute";
 import { checkAnswer } from "../../src/agent/planner";
@@ -73,9 +73,7 @@ describe("the components catalog", () => {
 describe("scale-to-fit: what size should it be? (real sizes from Windows, 2026-11-12)", () => {
   it.each<[string, [number, number, number], number, RegExp]>([
     ["3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636], 0.42, /a coffee table 2\.64 m high is outside the usual 0\.3-0\.55 m, so it is scaled to 0\.42 m/],
-    ["3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77], 1.77, /^$/], // 1.77 m high is a normal easel: left alone
     ["3DW_zen_garden_MarkE.skp", [16.3, 8.14, 5.36], 3.0, /zen garden or rocks 16\.3 m across .* scaled to 3 m/],
-    ["3DW_banyan_tree_3D_MananC.skp", [24, 24, 15], 2.8, /an indoor tree 15 m high .* scaled to 2\.8 m/],
   ])("%s", (file, size, wantedKey, why) => {
     const fit = fitComponent(file, size)!;
     const key = /zen/.test(file) ? Math.max(fit.size[0], fit.size[1]) : fit.size[2];
@@ -99,9 +97,30 @@ describe("scale-to-fit: what size should it be? (real sizes from Windows, 2026-1
     expect(fit.reason).toMatch(/to the brief's size \(1\.1 m across\)/);
   });
 
+  // From Windows, 2026-11-13: the rules themselves were wrong for these.
+  it("doesn't shrink a real 15 m banyan by its name: trees have no rule, a brief gives the size", () => {
+    expect(fitComponent("3DW_banyan_tree_3D_MananC.skp", [24, 24, 15])).toBeNull(); // 24 m across: unknown, so ask
+    const voidGarden = fitComponent("3DW_banyan_tree_3D_MananC.skp", [24, 24, 15], { roomHeight: 14, wanted: { height: 13.5 } })!;
+    expect(voidGarden.size[2]).toBeCloseTo(13.5, 3);
+    expect(fitComponent("3DW_SPACESCAN_tree_trunk_roots_9983.skp", [3.1, 2.9, 4.84])!.scale).toBe(1); // left as it is
+  });
+
+  it("refuses the Finkong zen garden instead of making it 8 cm tall (a whole scene, not one piece)", () => {
+    expect(fitComponent("ZEN+GARDEN3DW_zen_garden_Finkong.skp", [54.75, 5.73, 1.42])).toBeNull();
+    expect(fitProblem("ZEN+GARDEN3DW_zen_garden_Finkong.skp", [54.75, 5.73, 1.42])).toMatch(/3 x 0\.31 x 0\.08 m, under 10 cm thick: the file is probably a whole scene/);
+  });
+
+  it("checks the width too: the easel is 1.77 m high (fine) but 3.6 m wide (no easel is)", () => {
+    expect(fitComponent("3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77])).toBeNull();
+    expect(fitProblem("3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77])).toMatch(/proportions don't fit an easel: at 1\.77 m high it would be 3\.6 m wide \(easel is at most 1\.3 m\)/);
+    expect(fitComponent("3DW_Round marble coffee table.skp", [2.0, 2.0, 0.42])).toBeNull(); // right height, far too wide
+    expect(fitComponent("3DW_Round marble coffee table.skp", [0.9, 0.9, 0.42])!.scale).toBe(1); // a normal one
+  });
+
   it("always fits under the ceiling", () => {
     const fit = fitComponent("3DW_Banyan tree.skp", [3.2, 3.0, 4.6], { roomHeight: 3.5 })!;
-    expect(fit.size[2]).toBeCloseTo(2.8, 3); // the tree rule already makes it 2.8 m, which fits under 3.3
+    expect(fit.size[2]).toBeCloseTo(3.3, 3); // no rule for trees: it is just kept 20 cm under the 3.5 m ceiling
+    expect(fit.reason).toMatch(/made 3\.3 m high to fit under the ceiling/);
     const tall = fitComponent("3DW_Banyan tree.skp", [3.2, 3.0, 4.6], { roomHeight: 2.6, wanted: { height: 3.5 } })!;
     expect(tall.size[2]).toBeCloseTo(2.4, 3);
     expect(tall.reason).toMatch(/then made 2\.4 m high to fit under the ceiling/);

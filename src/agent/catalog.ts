@@ -65,7 +65,7 @@ export function renderCatalog(catalog: Catalog): string {
     "COMPONENTS you can place (file: east-west x north-south x height in metres, at the size it will be placed):",
     ...[...catalog.values()].map((c) => {
       const fit = fitComponent(c.file, c.size);
-      if (!fit) return `- ${c.file}: ${c.size.map(fmt).join(" x ")}  (DO NOT USE unless the brief gives its size: unknown kind, too big)`;
+      if (!fit) return `- ${c.file}: ${c.size.map(fmt).join(" x ")}  (DO NOT USE unless the brief gives its size: ${fitProblem(c.file, c.size)})`;
       return `- ${c.file}: ${fit.size.map(fmt).join(" x ")}${fit.scale !== 1 ? `  (file drawn at the wrong scale; placed at this size)` : ""}`;
     }),
   ].join("\n");
@@ -85,37 +85,49 @@ export function turnedSize(size: Vec3, rotation: number): Vec3 {
  * your file is never changed), the way a designer would: each kind of piece has a usual range for one
  * measurement, and a size outside it is brought to a typical value. Sizes the brief gives always win.
  */
-type Rule = { words: RegExp; what: string; dim: "height" | "across"; min: number; max: number; target: number };
+type Rule = {
+  words: RegExp;
+  what: string;
+  dim: "height" | "across";
+  min: number;
+  max: number;
+  target: number;
+  /** The widest such a piece ever is, checked after scaling too, so a file that is right in one measurement
+   *  but wrong in the other can't slip through (the easel: 1.77 m high, fine, but 3.6 m wide). */
+  maxAcross?: number;
+  /** Naturally flat (a mat): don't treat "very thin" as a sign of a whole scene. */
+  flat?: boolean;
+};
 export const TYPICAL: Rule[] = [
-  { words: /coffee.?table|side.?table/i, what: "a coffee table", dim: "height", min: 0.3, max: 0.55, target: 0.42 },
-  { words: /\btable\b|desk/i, what: "a table", dim: "height", min: 0.6, max: 1.15, target: 0.75 },
-  { words: /stool|chair/i, what: "a chair", dim: "height", min: 0.65, max: 1.25, target: 0.85 },
-  { words: /sofa|couch/i, what: "a sofa", dim: "height", min: 0.55, max: 1.1, target: 0.8 },
-  { words: /bench/i, what: "a bench", dim: "height", min: 0.35, max: 1.0, target: 0.45 },
-  { words: /easel/i, what: "an easel", dim: "height", min: 1.4, max: 2.3, target: 1.8 },
-  { words: /(?:yoga|\bmat\b)(?!.*basket)/i, what: "a mat", dim: "across", min: 1.5, max: 2.3, target: 1.83 },
+  { words: /coffee.?table|side.?table/i, what: "a coffee table", dim: "height", min: 0.3, max: 0.55, target: 0.42, maxAcross: 1.6 },
+  { words: /\btable\b|desk/i, what: "a table", dim: "height", min: 0.6, max: 1.15, target: 0.75, maxAcross: 3.6 },
+  { words: /stool|chair/i, what: "a chair", dim: "height", min: 0.65, max: 1.25, target: 0.85, maxAcross: 1.3 },
+  { words: /sofa|couch/i, what: "a sofa", dim: "height", min: 0.55, max: 1.1, target: 0.8, maxAcross: 4.5 },
+  { words: /bench/i, what: "a bench", dim: "height", min: 0.35, max: 1.0, target: 0.45, maxAcross: 4.5 },
+  { words: /easel/i, what: "an easel", dim: "height", min: 1.4, max: 2.3, target: 1.8, maxAcross: 1.3 },
+  { words: /(?:yoga|\bmat\b)(?!.*basket)/i, what: "a mat", dim: "across", min: 1.5, max: 2.3, target: 1.83, flat: true },
   { words: /basin|sink/i, what: "a basin", dim: "across", min: 0.35, max: 1.2, target: 0.6 },
   { words: /chandelier|lamp|pendant/i, what: "a lamp", dim: "across", min: 0.25, max: 2.0, target: 0.9 },
-  { words: /fittonia|maranta|potted|\bpot\b|money.?tree|fern/i, what: "a pot plant", dim: "height", min: 0.15, max: 2.5, target: 1.2 },
+  { words: /fittonia|maranta|potted|\bpot\b|money.?tree|fern/i, what: "a pot plant", dim: "height", min: 0.15, max: 2.5, target: 1.2, maxAcross: 2.5 },
   { words: /zen.?garden|rock/i, what: "a zen garden or rocks", dim: "across", min: 0.4, max: 8, target: 3.0 },
-  { words: /tree|palm/i, what: "an indoor tree", dim: "height", min: 1.0, max: 4.0, target: 2.8 },
+  // No rule for trees: a real banyan is 15 m (the void garden has one) and a pot tree 2 m, so the name
+  // can't say. The ceiling limit stops anything impossible; a brief can always give the size.
 ];
 const ANY_MAX_PLAN = 12; // nothing in an interior is 12 m across
 const CEILING_GAP = 0.2; // a placed piece stays at least this far below the room's top
+const THINNEST = 0.1; // a scaled result thinner than 10 cm in any direction is a sign the file is a whole scene
 
 export type Fit = { scale: number; size: Vec3; reason: string | null };
 export type Wanted = { height?: number; across?: number };
+type Outcome = { fit: Fit; why?: undefined } | { fit: null; why: string };
 
-/**
- * The uniform scale for one component. null when there is no way to tell (an unknown kind of piece more than
- * 12 m across, and the brief gives no size): then the plan refuses it and says why.
- */
-export function fitComponent(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted } = {}): Fit | null {
+function decide(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted }): Outcome {
   const [x, y, z] = size;
   const across = Math.max(x, y);
   const f = (v: number) => (Math.round(v * 100) / 100).toString();
   let scale = 1;
   let reason: string | null = null;
+  let flat = false;
 
   if (opts.wanted?.height || opts.wanted?.across) {
     scale = opts.wanted.height ? opts.wanted.height / z : opts.wanted.across! / across;
@@ -132,8 +144,17 @@ export function fitComponent(file: string, size: Vec3, opts: { roomHeight?: numb
         scale = to / v;
         reason = `${rule.what} ${f(v)} m ${rule.dim === "height" ? "high" : "across"} is outside the usual ${f(rule.min)}-${f(rule.max)} m, so it is scaled to ${f(to)} m`;
       }
+      // The second measurement, for kinds where both are known. If the first is right (or made right) and
+      // the second is still wrong, the proportions themselves are wrong: no single scale can fix that.
+      if (rule.maxAcross && across * scale > rule.maxAcross) {
+        return {
+          fit: null,
+          why: `its proportions don't fit ${rule.what}: at ${f(z * scale)} m high it would be ${f(across * scale)} m wide (${rule.what.replace(/^an? /, "")} is at most ${f(rule.maxAcross)} m), so no single scale makes it right: probably a whole scene or a different object. Fix the file, or give its size in the brief`,
+        };
+      }
+      flat = Boolean(rule.flat);
     } else if (across > ANY_MAX_PLAN) {
-      return null;
+      return { fit: null, why: `${f(across)} m across and not a kind of piece the agent knows: give its size in the brief` };
     }
   }
   if (opts.roomHeight && z * scale > opts.roomHeight - CEILING_GAP) {
@@ -141,12 +162,34 @@ export function fitComponent(file: string, size: Vec3, opts: { roomHeight?: numb
     reason = `${reason ? `${reason}, then ` : ""}made ${f(opts.roomHeight - CEILING_GAP)} m high to fit under the ceiling`;
   }
   scale = Math.round(scale * 10000) / 10000;
-  return { scale, size: [x * scale, y * scale, z * scale], reason };
+  const scaled: Vec3 = [x * scale, y * scale, z * scale];
+  // One scale for all three directions can't fix a file that is really a whole scene (Windows 2026-11-12:
+  // the 54.75 x 5.73 x 1.42 m zen garden came out 3.00 x 0.31 x 0.08 m). Refuse instead of placing a sliver.
+  if (scale !== 1 && !flat && !opts.wanted && Math.min(...scaled) < THINNEST && Math.min(x, y, z) >= THINNEST) {
+    return {
+      fit: null,
+      why: `scaled to fit, it would be ${scaled.map(f).join(" x ")} m, under ${THINNEST * 100} cm thick: the file is probably a whole scene, not one piece. Give its size in the brief, or pick another`,
+    };
+  }
+  return { fit: { scale, size: scaled, reason } };
+}
+
+/**
+ * The uniform scale for one component (your file is never changed). null when it can't be judged; then
+ * `fitProblem` says why and the plan refuses it.
+ */
+export function fitComponent(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted } = {}): Fit | null {
+  return decide(file, size, opts).fit;
+}
+
+/** Why a component can't be fitted, in plain words (null when it can). */
+export function fitProblem(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted } = {}): string | null {
+  return decide(file, size, opts).why ?? null;
 }
 
 /** Plain words for `npm run components` and the model's list: null when the file's size is fine as it is. */
 export function plausibility(file: string, size: Vec3): string | null {
   const fit = fitComponent(file, size);
-  if (!fit) return `${(Math.round(Math.max(size[0], size[1]) * 100) / 100).toString()} m across and not a kind of piece the agent knows: give its size in the brief`;
+  if (!fit) return fitProblem(file, size);
   return fit.reason;
 }

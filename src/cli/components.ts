@@ -2,7 +2,7 @@
 // npm run components --mock   -> the same on the fake folder
 // Measuring loads each new file into SketchUp for a moment and removes it again, so it needs a DEV model
 // open (not the MASTER). Sizes are cached in runs/components.json; only new or changed files are measured.
-import { catalogCache, loadCatalog, plausibility } from "../agent/catalog";
+import { catalogCache, fitComponent, fitProblem, loadCatalog, plausibility } from "../agent/catalog";
 import { BridgeClient } from "../bridge/client";
 import { createTransport } from "../bridge/createTransport";
 import { BridgeUnavailableError } from "../bridge/transport";
@@ -29,9 +29,16 @@ async function main(): Promise<number> {
     console.log(`   ${size.padEnd(36)}${(c.bytes / 1e6).toFixed(1).padStart(5)}    ${c.file}`);
   }
   for (const p of problems) console.log(`NOT USABLE: ${p}`);
-  const wrong = [...catalog.values()].map((c) => [c.file, plausibility(c.file, c.size)] as const).filter(([, w]) => w);
-  for (const [file, w] of wrong) console.log(`LOOKS WRONG (placed at a corrected size): ${file}: ${w}`);
-  if (wrong.length) console.log("Fix: open the file in SketchUp, scale it to its real size, save it, then run this again.");
+  const flagged = [...catalog.values()].filter((c) => plausibility(c.file, c.size));
+  for (const c of flagged) {
+    const fixed = fitComponent(c.file, c.size);
+    console.log(
+      fixed
+        ? `RESIZED WHEN PLACED: ${c.file}: ${plausibility(c.file, c.size)}`
+        : `CAN'T BE PLACED unless the brief gives its size: ${c.file}: ${fitProblem(c.file, c.size)}`,
+    );
+  }
+  if (flagged.length) console.log("Your files are never changed. To fix one for good: open it in SketchUp, scale it to its real size, save, run this again.");
   console.log(`\nCached in ${catalogCache(mock)}`);
   return 0;
 }

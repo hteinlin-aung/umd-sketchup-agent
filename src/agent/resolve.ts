@@ -1,6 +1,6 @@
 import { TOOLS, type Bounds, type ToolName, type Vec2 } from "../protocol/tools";
 import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
-import { fitComponent, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
+import { fitComponent, fitProblem, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
 
 /**
@@ -182,7 +182,7 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
         const roomHeight = summary.room.bounds.max[2] - (floorZ + step.base);
         const fit = fitComponent(entry.file, entry.size, { roomHeight, wanted: step.size });
         if (!fit) {
-          errors.push(`line ${step.line}: ${entry.file} is ${fmt(Math.max(entry.size[0], entry.size[1]))} m across and not a kind of piece the agent knows, so it can't tell the right size: give its size in the brief`);
+          errors.push(`line ${step.line}: ${entry.file}: ${fitProblem(entry.file, entry.size, { roomHeight, wanted: step.size })}`);
           break;
         }
         const [ew, ns, h] = turnedSize(fit.size, step.rotation);

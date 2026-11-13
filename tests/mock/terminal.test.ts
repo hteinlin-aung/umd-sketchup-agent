@@ -2,9 +2,11 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { terminal, type TerminalInput } from "../../src/cli/terminal";
 
-// MOCK: the terminal questions. Windows, 2026-11-12: a command line pasted twice left text in the
-// input buffer. It answered "which one do you like?" with a component nobody picked, and went on to
-// the run/stop gate. Anything typed BEFORE a question appeared must not count as its answer.
+// MOCK: the terminal questions. Windows, 2026-11-12: the designer's typing wasn't echoed (readline had no
+// output), so he pressed keys again and answers came out wrong ("2" became "211"). The cause was the
+// missing echo, fixed in terminal.ts (an early guess blamed a pasted command line; that was wrong).
+// Still kept as a safeguard: at a real keyboard, anything typed BEFORE a question appeared doesn't
+// count as its answer.
 
 const stream = (isTTY: boolean) => Object.assign(new PassThrough(), { isTTY }) as unknown as TerminalInput & PassThrough;
 
@@ -12,7 +14,7 @@ describe("terminal(): questions at a real keyboard", () => {
   it("throws away text typed before the question was asked", async () => {
     const input = stream(true);
     const rl = terminal(input);
-    input.write("2\ny\n"); // the stray half of a pasted command line
+    input.write("2\ny\n"); // keys pressed before the question was on screen
     await new Promise((r) => setImmediate(r));
     const answer = rl.ask("Run these 4 actions? ");
     input.write("\n"); // the designer actually presses Enter

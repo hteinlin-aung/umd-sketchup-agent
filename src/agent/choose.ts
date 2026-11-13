@@ -12,7 +12,22 @@ import type { Draft, DraftStep } from "./draft";
  */
 
 export type Candidate = { entry: CatalogEntry; size: [number, number, number]; scaled: boolean; preview: string | null };
-export type Choice = { step: string; line: number; picked: string; from: string[] };
+export type Choice = { step: string; line: number; picked: string; from: string[]; renamed?: { from: string; to: string } };
+
+/**
+ * A readable name from a 3D Warehouse file name: "3DW_fittonia_SashaAlonso.skp" -> "Fittonia",
+ * "3DW_money_tree_Pachira_VitorB_86654.skp" -> "Money tree Pachira". Drops the 3DW prefix, numbers
+ * and author names written as one CamelCase word.
+ */
+export function componentName(file: string): string {
+  const words = file
+    .replace(/\.skp$/i, "")
+    .replace(/^(?:[A-Z+]+)?3DW[_ ]?/i, "")
+    .split(/[_\s]+/)
+    .filter((w) => w && !/^\d+$/.test(w) && !/^[A-Z][a-z]+[A-Z]/.test(w) && !/^[A-Z][a-z]*[A-Z]$/.test(w) && !/^(SPACESCAN|3D)$/i.test(w));
+  const name = words.join(" ").trim() || file.replace(/\.skp$/i, "");
+  return (name.charAt(0).toUpperCase() + name.slice(1)).slice(0, 80);
+}
 /** Shows the question and returns the answer typed (the terminal in agent.ts; a fake in tests). */
 export type Ask = (question: string) => Promise<string>;
 
@@ -87,8 +102,12 @@ export async function chooseComponents(
       }
     }
     const file = list[pick]!.entry.file;
-    choices.push({ step: st.id, line: st.line, picked: file, from: list.map((c) => c.entry.file) });
-    steps.push({ ...st, component: file });
+    // A different pick gets a name that says what it IS: otherwise the model would hold an object called
+    // "Money tree" that is a fittonia (Windows, 2026-11-12), the very name-vs-contents mix-up that
+    // "Sofa set 4 holding only a palm" taught us to catch.
+    const name = pick === 0 ? st.name : componentName(file);
+    choices.push({ step: st.id, line: st.line, picked: file, from: list.map((c) => c.entry.file), ...(name !== st.name ? { renamed: { from: st.name, to: name } } : {}) });
+    steps.push({ ...st, component: file, name });
   }
   return { draft: { ...draft, steps }, choices };
 }
