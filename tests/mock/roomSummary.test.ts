@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
-import { groupNames, mismatchWarning, renderSummary, summarizeRoom } from "../../src/summary/roomSummary";
+import { floorFor, groupNames, mismatchWarning, renderSummary, summarizeRoom } from "../../src/summary/roomSummary";
+import type { Bounds } from "../../src/protocol/tools";
 
 // MOCK: step 2b on the fake copy of the T128 reception room (src/bridge/mockScenes.ts).
 
@@ -132,5 +133,22 @@ describe("summarizeRoom", () => {
   it("throws a clear error for a room that does not exist", async () => {
     const { client } = setup();
     await expect(summarizeRoom(client, { path: ["No such room"] })).rejects.toThrow(/room not found/);
+  });
+});
+
+// Windows, 2026-11-14 (2F dev copy): the pool room's floor came out as the bottom of the pool basin.
+describe("floorFor: the floor new pieces stand on", () => {
+  const box = (z0: number, z1: number) => ({ min: [0, 0, z0], max: [1, 1, z1] }) as Bounds;
+  it.each([
+    ["1F MEDITATION + BREATHING ROOMS (T133)", 2.02, 5.085, 1.489],
+    ["NEW_2F_Pool_Area_FitOut_v02 (STILL water concept)", 4.279, 9.179, 5.479], // not the basin bottom 4.279
+    ["LOBBY_WAITING (T138) - Water Without Water", 5.481, 8.68, 5.479], // no floor in the name: its height takes in 2F
+    ["3F THERAPY + PSYCHIATRIST INTERIOR (T124)", 10.98, 13.9, 10.979],
+    ["Garden shed", 0.2, 0.9, 0.2], // nothing known: the lowest point
+  ] as const)("%s -> %s", (name, z0, z1, want) => {
+    expect(floorFor({ name, path: [] }, box(z0, z1)).z).toBe(want);
+  });
+  it("a longer word with F in it is not a floor (T128, 12F, D500)", () => {
+    expect(floorFor({ name: "UMD Column D500 T128 12F", path: [] }, box(0.2, 0.9)).z).toBe(0.2);
   });
 });

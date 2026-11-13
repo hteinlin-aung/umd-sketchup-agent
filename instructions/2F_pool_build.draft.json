@@ -1,0 +1,15 @@
+{
+  "steps": [
+    { "op": "build", "line": 1, "id": "S1", "name": "Robe bench - light oak",
+      "placement": { "kind": "beside", "anchor": "R20", "side": "south", "gap": 0.1, "eastWest": 1.6, "northSouth": 0.45, "shift": -3.2 },
+      "height": 0.45, "base": 0, "tag": "2F Pool - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "build", "line": 2, "id": "S2", "name": "Towel shelf - light oak",
+      "placement": { "kind": "beside", "anchor": "R20", "side": "south", "gap": 0, "eastWest": 1.6, "northSouth": 0.25, "shift": -3.2 },
+      "height": 0.04, "base": 1.5, "tag": "2F Pool - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "screenshot", "line": 5 },
+    { "op": "save", "line": 5, "fileName": "UMD_DEV_2F_pool_build.skp" }
+  ],
+  "notDone": []
+}

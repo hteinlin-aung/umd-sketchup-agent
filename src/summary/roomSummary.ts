@@ -89,13 +89,29 @@ export function mismatchWarning(name: string, contentLabels: string[]): string |
   return `name says "${word.toLowerCase()}" but the contents look like ${[...seen].join(" + ")} only`;
 }
 
-function floorFor(room: { name: string; path: string[] }, roomBounds: Bounds): RoomSummary["floor"] {
+/**
+ * The floor new pieces stand on. Windows, 2026-11-14 (2F copy): "NEW_2F_Pool_Area..." didn't match "\b2F\b" (an
+ * underscore is a word character), so the floor became the room's lowest point - the BOTTOM OF THE POOL BASIN, 1.2 m
+ * down - and "LOBBY_WAITING (T138)" has no floor in its name at all.
+ *  1. a floor in the name: "1F ...", "NEW_2F_Pool", "(3F)" - an underscore counts as a gap;
+ *  2. else the confirmed finish floor that lies within the room's height (the lowest, if several);
+ *  3. else the room's lowest point, and the summary says so.
+ */
+export function floorFor(room: { name: string; path: string[] }, roomBounds: Bounds): RoomSummary["floor"] {
   const text = [...room.path, room.name].join(" ");
-  const m = text.match(/\b([123])F\b/i);
+  const m = text.match(/(?:^|[^a-z0-9])([123])F(?![a-z0-9])/i);
   if (m) {
     const floor = `${m[1]}F` as UmdFloor;
     const z = UMD_LEVELS[floor].finishFloor;
     return { z, source: `${floor} finish floor (confirmed levels)` };
+  }
+  const within = (["1F", "2F", "3F"] as const).filter((f) => {
+    const z = UMD_LEVELS[f].finishFloor;
+    return z >= roomBounds.min[2] - 0.05 && z <= roomBounds.max[2];
+  });
+  if (within.length) {
+    const floor = within[0]!;
+    return { z: UMD_LEVELS[floor].finishFloor, source: `${floor} finish floor (confirmed levels; the room's height takes in that floor)` };
   }
   return { z: round(roomBounds.min[2]), source: "lowest point of the room (no floor level known for this name)" };
 }
