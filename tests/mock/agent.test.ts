@@ -4,7 +4,8 @@ import { parseBrief } from "../../src/agent/brief";
 import { Draft, changeAnswerJsonSchema, draftJsonSchema, type DraftStep } from "../../src/agent/draft";
 import { executePlan, renderReport } from "../../src/agent/execute";
 import type { Llm } from "../../src/agent/llm";
-import { checkAnswer, planBrief } from "../../src/agent/planner";
+import { briefPutsItThere, checkAnswer, planBrief } from "../../src/agent/planner";
+import { t133 } from "../helpers/t133";
 import { overlaps, renderPlan, resolveDraft } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
@@ -507,5 +508,46 @@ describe("executePlan: running the approved plan", () => {
     expect(report).toContain("all 15 actions ran");
     expect(report).toContain(renderPlan(plan).split("\n")[2]);
     expect(report).toContain("R5  Sofa set 4");
+  });
+});
+
+// Windows, 2026-11-13 (brief 5, PowerShell run 230100): qwen3:8b answered both genkan benches EXACTLY like the
+// reference draft and was rejected twice. The "outside the room" rule treated a whole room as a wall: for the
+// breathing room it said "use north" (already north), for the meditation room "use south" - into the raised tatami.
+describe("brief 5: a block the brief itself puts outside the room", () => {
+  const brief = parseBrief(readFileSync("instructions/1F_meditation_build.md", "utf8"));
+  const opts = { runId: "t", briefName: "1F_meditation_build" };
+  const bench = (anchor: string, side: string, shift: number) =>
+    JSON.stringify({
+      type: "steps",
+      steps: [{ op: "build", id: "S1", name: "Genkan bench - light oak", placement: { kind: "beside", anchor, side, gap: 0.14, eastWest: 2.0, northSouth: 0.35, shift }, height: 0.45, tag: "1F Meditation - Furniture (AGENT)", material: { name: "UMD Light Oak", rgb: [196, 164, 120] } }],
+      reason: "",
+    });
+
+  it("accepts the model's real answers: 0.14 m north of each room, in the hallway", () => {
+    const { summary } = t133();
+    for (const [line, anchor, shift] of [[1, "R2", 5.2], [2, "R1", -5.4]] as const) {
+      const change = brief.changes.find((c) => c.line === line)!;
+      expect(checkAnswer(bench(anchor, "north", shift), change, [], 1, summary, opts, brief).problems).toEqual([]);
+    }
+  });
+
+  it("still rejects the retry it was pushed into (south of the meditation room), without a wrong hint", () => {
+    const { summary } = t133();
+    const change = brief.changes.find((c) => c.line === 2)!;
+    const p = checkAnswer(bench("R1", "south", -5.4), change, [], 1, summary, opts, brief).problems.join();
+    expect(p).toMatch(/S1 ends up outside the room/);
+    expect(p).not.toMatch(/use side "south"/);
+  });
+
+  it("only the brief's own words count: a wall's NAME is not a side", () => {
+    const { refs } = t133();
+    const r2 = refs.get("R2")!;
+    expect(briefPutsItThere("0.14 m north of the `BREATHING ROOM`, shifted 5.2 m east", "north", r2)).toBe(true);
+    expect(briefPutsItThere("0.14 m north of the BREATHING ROOM, shifted 5.2 m east", "north", r2)).toBe(true);
+    expect(briefPutsItThere("0.14 m north of the `BREATHING ROOM`", "south", r2)).toBe(false);
+    expect(briefPutsItThere("0.14 m north of the `MEDITATION ROOM`", "north", r2)).toBe(false);
+    const wall = { ...r2, name: "EAST GLASS WALL (T132) - floor-to-ceiling low-iron glass" };
+    expect(briefPutsItThere("Two kerbs inside the main entrance (the gap in the middle of `EAST GLASS WALL (T132)`)", "east", wall)).toBe(false);
   });
 });

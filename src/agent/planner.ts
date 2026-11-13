@@ -135,12 +135,34 @@ const OVERLAPS_A_NEW_BLOCK = /overlaps S\d+, another new block/;
  * nearer the middle of the room. Returns null when the item isn't clearly long one way.
  */
 function insideFace(anchor: RoomSummary["items"][number], summary: RoomSummary): "east" | "west" | "north" | "south" | null {
+  // Only a wall-like item has an inside face. An area (a room inside the room group) has none: for the T133
+  // breathing room this said "use north" when the model already had, and for the meditation room "use south",
+  // which is INTO the raised tatami (Windows, 2026-11-13, brief 5).
+  if (Math.min(anchor.size[0], anchor.size[1]) >= AREA) return null;
   const runs = runsWhichWay(anchor.size);
   const middle = (b: readonly number[], c: readonly number[], i: number) => (b[i]! + c[i]!) / 2;
   const room = summary.room.bounds;
   if (runs === "north-south") return middle(room.min, room.max, 0) < middle(anchor.bounds.min, anchor.bounds.max, 0) ? "west" : "east";
   if (runs === "east-west") return middle(room.min, room.max, 1) < middle(anchor.bounds.min, anchor.bounds.max, 1) ? "south" : "north";
   return null;
+}
+
+/** An item at least this big both ways is an area you can stand in, not a wall or an object. */
+const AREA = 4;
+
+/**
+ * Does the change itself say "<n> m <side> of <this item>"? Then a block outside the room's box is what the brief
+ * asked for, not a wrong side. (Windows, 2026-11-13: brief 5 puts genkan benches "0.14 m north of the BREATHING
+ * ROOM", in the hallway; qwen3:8b answered exactly that and was rejected twice.) The name must be the start of the
+ * item's real name, so the name of a wall can't pass for a side: "EAST GLASS WALL" says nothing about "east of it".
+ */
+export function briefPutsItThere(text: string, side: string, anchor: RoomSummary["items"][number]): boolean {
+  const name = anchor.name.toLowerCase();
+  for (const m of text.matchAll(/\d+(?:\.\d+)?\s*m\s+(north|south|east|west)\s+of\s+(?:the\s+)?(?:`([^`]+)`|([^,.;\n`]+))/gi)) {
+    const said = (m[2] ?? m[3] ?? "").trim().toLowerCase();
+    if (m[1]!.toLowerCase() === side && said.length >= 4 && name.startsWith(said)) return true;
+  }
+  return false;
 }
 
 /**
@@ -339,6 +361,8 @@ export function checkAnswer(
         const anchor = (step?.op === "build" || step?.op === "place") && step.placement.kind === "beside"
           ? summary.items.find((it) => it.ref === (step.placement as { anchor: string }).anchor)
           : undefined;
+        const side = (step?.op === "build" || step?.op === "place") && step.placement.kind === "beside" ? step.placement.side : undefined;
+        if (anchor && side && briefPutsItThere(change.text, side, anchor)) continue; // asked for: the plan still warns
         const inside = anchor ? insideFace(anchor, summary) : null;
         problems.push(
           inside
