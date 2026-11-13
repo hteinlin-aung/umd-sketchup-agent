@@ -389,6 +389,31 @@ describe("planBrief: asking the model one change at a time", () => {
     expect(checkAnswer(JSON.stringify({ type: "steps", steps, reason: "" }), change, [], 4, summary, OPTS).problems).toEqual([]);
   });
 
+  // Windows 2026-11-13, brief 3: qwen3:8b planned all four changes correctly and lost two of them to
+  // formatting - "north-west" copied from the brief's own wording, and "" for a view with no target.
+  it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
+    ["a compass word hyphenated, as the brief writes it", { from: "north-west", toward: "R1" }, { from: "northwest", toward: "R1" }],
+    ["a compass word with a space", { from: "south east" }, { from: "southeast" }],
+    ["an empty toward for a view of nothing in particular", { from: "above", toward: "" }, { from: "above" }],
+    ["a lower-case item ref", { from: "r12", toward: "r1" }, { from: "R12", toward: "R1" }],
+  ])("accepts %s", async (_, given, wanted) => {
+    const { summary } = await setup();
+    const step = { op: "scene", name: "1F Reception - seated", eyeHeight: 1.1, ...given };
+    const change = { line: 2, text: "Save a scene called `1F Reception - seated`, from the north-west corner, looking toward Terrarium A." };
+    const out = checkAnswer(JSON.stringify({ type: "steps", steps: [step], reason: "" }), change, [], 1, summary, OPTS);
+    expect(out.problems).toEqual([]);
+    expect(out.answer!.steps[0]).toMatchObject({ op: "scene", ...wanted });
+    if ("toward" in wanted === false) expect(out.answer!.steps[0]).not.toHaveProperty("toward");
+  });
+
+  it("leaves a compass word it does not recognise to the schema, so a typo is still reported", async () => {
+    const { summary } = await setup();
+    const step = { op: "scene", name: "view", from: "north-northwest", eyeHeight: 1.6 };
+    const change = { line: 2, text: "Save a scene called `view` from the north-northwest corner." };
+    const out = checkAnswer(JSON.stringify({ type: "steps", steps: [step], reason: "" }), change, [], 1, summary, OPTS);
+    expect(out.problems.join()).toMatch(/a side of the room/);
+  });
+
   it("sends Ollama schemas it accepts (no prefixItems / items:false, Windows fix 543957a)", () => {
     for (const schema of [draftJsonSchema(), changeAnswerJsonSchema()]) {
       const text = JSON.stringify(schema);

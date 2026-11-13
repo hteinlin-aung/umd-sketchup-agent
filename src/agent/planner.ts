@@ -241,6 +241,35 @@ function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, 
   ].join("\n\n");
 }
 
+/**
+ * Two shapes the model gets right in spirit and wrong on the page, tidied before the schema sees them:
+ * - a compass word written the way the BRIEF writes it ("north-west corner" -> "north-west");
+ * - an empty `toward` for a view that has nothing to look at, instead of leaving the field out.
+ * Widening the schema is not the answer: it is also the JSON Schema Ollama decodes against, so a looser
+ * one lets the model wander. (Windows 2026-11-13: brief 3 lost changes 2 and 3 to exactly these, twice
+ * each, though every other field was right.)
+ */
+export function tidyScenes(json: unknown): unknown {
+  const obj = json as { steps?: unknown } | null;
+  if (!obj || typeof obj !== "object" || !Array.isArray(obj.steps)) return json;
+  const ref = (t: string) => /^r\d{1,3}$/i.test(t);
+  const steps = obj.steps.map((raw) => {
+    if (!raw || typeof raw !== "object" || (raw as { op?: unknown }).op !== "scene") return raw;
+    const st = { ...(raw as Record<string, unknown>) };
+    if (typeof st.from === "string") {
+      const t = st.from.trim();
+      st.from = ref(t) ? t.toUpperCase() : t.toLowerCase().replace(/[\s_-]+/g, "");
+    }
+    if (typeof st.toward === "string") {
+      const t = st.toward.trim();
+      if (t === "") delete st.toward;
+      else if (ref(t)) st.toward = t.toUpperCase();
+    }
+    return st;
+  });
+  return { ...obj, steps };
+}
+
 /** Checks one answer. Returns the problems in plain words (empty = accepted). */
 export function checkAnswer(
   text: string,
@@ -257,7 +286,7 @@ export function checkAnswer(
   } catch {
     return { answer: null, problems: ["the answer is not valid JSON"] };
   }
-  const parsed = ChangeAnswer.safeParse(json);
+  const parsed = ChangeAnswer.safeParse(tidyScenes(json));
   if (!parsed.success) {
     return { answer: null, problems: parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`) };
   }
