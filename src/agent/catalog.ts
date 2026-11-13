@@ -11,7 +11,31 @@ import type { Vec3 } from "../protocol/tools";
  * Measuring needs a dev model (it loads the file for a moment); on the MASTER only the cache is used.
  */
 
-export type CatalogEntry = { file: string; bytes: number; size: Vec3; definitionName: string };
+export type CatalogEntry = {
+  file: string;
+  bytes: number;
+  size: Vec3;
+  definitionName: string;
+  /** Listed in instructions/components_as_drawn.txt: its size is right as drawn, never guessed from its name. */
+  asDrawn?: boolean;
+};
+
+/**
+ * Your list of component files whose size is RIGHT as drawn, however big (one file name per line, # for notes).
+ * Windows, 2026-11-13: the real 24 m banyan was refused because nothing can tell from a name that a file
+ * that big is correct. Only you can, so you say it here.
+ */
+export const AS_DRAWN_LIST = "instructions/components_as_drawn.txt";
+
+export function readAsDrawn(path = AS_DRAWN_LIST): string[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/#.*$/, "").trim())
+    .filter(Boolean);
+}
+
+const sameFile = (a: string, b: string) => a.toLowerCase().replace(/\.skp$/, "") === b.toLowerCase().replace(/\.skp$/, "");
 export type Catalog = Map<string, CatalogEntry>;
 
 export const CATALOG_CACHE = "runs/components.json";
@@ -20,7 +44,7 @@ export const catalogCache = (mock: boolean) => (mock ? "runs/components.mock.jso
 
 export async function loadCatalog(
   client: BridgeClient,
-  opts: { cachePath?: string; canMeasure?: boolean; onMeasure?: (file: string, i: number, n: number) => void } = {},
+  opts: { cachePath?: string; canMeasure?: boolean; onMeasure?: (file: string, i: number, n: number) => void; asDrawnPath?: string } = {},
 ): Promise<{ catalog: Catalog; problems: string[] }> {
   const cachePath = opts.cachePath ?? CATALOG_CACHE;
   const cached = new Map<string, CatalogEntry>();
@@ -54,6 +78,14 @@ export async function loadCatalog(
 
   mkdirSync(dirname(cachePath), { recursive: true });
   writeFileSync(cachePath, JSON.stringify([...catalog.values()], null, 2));
+
+  // Your "right as drawn" list is read fresh every time (never cached), so editing it takes effect at once.
+  // (Only when a command passes the list: tests and --mock runs use the fake folder, not your list.)
+  for (const name of opts.asDrawnPath ? readAsDrawn(opts.asDrawnPath) : []) {
+    const hit = [...catalog.values()].find((c) => sameFile(c.file, name));
+    if (hit) catalog.set(hit.file, { ...hit, asDrawn: true });
+    else problems.push(`${name}: listed in ${opts.asDrawnPath} but not in the components folder`);
+  }
   return { catalog, problems };
 }
 
@@ -64,7 +96,7 @@ export function renderCatalog(catalog: Catalog): string {
   return [
     "COMPONENTS you can place (file: east-west x north-south x height in metres, at the size it will be placed):",
     ...[...catalog.values()].map((c) => {
-      const fit = fitComponent(c.file, c.size);
+      const fit = fitComponent(c.file, c.size, { asDrawn: c.asDrawn });
       if (!fit) return `- ${c.file}: ${c.size.map(fmt).join(" x ")}  (DO NOT USE unless the brief gives its size: ${fitProblem(c.file, c.size)})`;
       return `- ${c.file}: ${fit.size.map(fmt).join(" x ")}${fit.scale !== 1 ? `  (file drawn at the wrong scale; placed at this size)` : ""}`;
     }),
@@ -119,9 +151,10 @@ const THINNEST = 0.1; // a scaled result thinner than 10 cm in any direction is 
 
 export type Fit = { scale: number; size: Vec3; reason: string | null };
 export type Wanted = { height?: number; across?: number };
+export type FitOptions = { roomHeight?: number; wanted?: Wanted; asDrawn?: boolean };
 type Outcome = { fit: Fit; why?: undefined } | { fit: null; why: string };
 
-function decide(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted }): Outcome {
+function decide(file: string, size: Vec3, opts: FitOptions): Outcome {
   const [x, y, z] = size;
   const across = Math.max(x, y);
   const f = (v: number) => (Math.round(v * 100) / 100).toString();
@@ -129,7 +162,10 @@ function decide(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: 
   let reason: string | null = null;
   let flat = false;
 
-  if (opts.wanted?.height || opts.wanted?.across) {
+  if (opts.asDrawn && !opts.wanted) {
+    // You said this file is right as drawn: no rule from its name, no 12 m limit, no "whole scene" check.
+    reason = null;
+  } else if (opts.wanted?.height || opts.wanted?.across) {
     scale = opts.wanted.height ? opts.wanted.height / z : opts.wanted.across! / across;
     reason = `to the brief's size (${opts.wanted.height ? `${f(opts.wanted.height)} m high` : `${f(opts.wanted.across!)} m across`})`;
   } else {
@@ -165,7 +201,7 @@ function decide(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: 
   const scaled: Vec3 = [x * scale, y * scale, z * scale];
   // One scale for all three directions can't fix a file that is really a whole scene (Windows 2026-11-12:
   // the 54.75 x 5.73 x 1.42 m zen garden came out 3.00 x 0.31 x 0.08 m). Refuse instead of placing a sliver.
-  if (scale !== 1 && !flat && !opts.wanted && Math.min(...scaled) < THINNEST && Math.min(x, y, z) >= THINNEST) {
+  if (scale !== 1 && !flat && !opts.wanted && !opts.asDrawn && Math.min(...scaled) < THINNEST && Math.min(x, y, z) >= THINNEST) {
     return {
       fit: null,
       why: `scaled to fit, it would be ${scaled.map(f).join(" x ")} m, under ${THINNEST * 100} cm thick: the file is probably a whole scene, not one piece. Give its size in the brief, or pick another`,
@@ -178,18 +214,18 @@ function decide(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: 
  * The uniform scale for one component (your file is never changed). null when it can't be judged; then
  * `fitProblem` says why and the plan refuses it.
  */
-export function fitComponent(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted } = {}): Fit | null {
+export function fitComponent(file: string, size: Vec3, opts: FitOptions = {}): Fit | null {
   return decide(file, size, opts).fit;
 }
 
 /** Why a component can't be fitted, in plain words (null when it can). */
-export function fitProblem(file: string, size: Vec3, opts: { roomHeight?: number; wanted?: Wanted } = {}): string | null {
+export function fitProblem(file: string, size: Vec3, opts: FitOptions = {}): string | null {
   return decide(file, size, opts).why ?? null;
 }
 
 /** Plain words for `npm run components` and the model's list: null when the file's size is fine as it is. */
-export function plausibility(file: string, size: Vec3): string | null {
-  const fit = fitComponent(file, size);
-  if (!fit) return fitProblem(file, size);
+export function plausibility(file: string, size: Vec3, opts: FitOptions = {}): string | null {
+  const fit = fitComponent(file, size, opts);
+  if (!fit) return fitProblem(file, size, opts);
   return fit.reason;
 }

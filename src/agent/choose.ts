@@ -36,13 +36,13 @@ export function similarComponents(file: string, catalog: Catalog, max = 2): Cata
   const rule = TYPICAL.find((t) => t.words.test(file));
   if (!rule) return [];
   return [...catalog.values()]
-    .filter((c) => c.file !== file && TYPICAL.find((t) => t.words.test(c.file)) === rule && fitComponent(c.file, c.size))
+    .filter((c) => c.file !== file && TYPICAL.find((t) => t.words.test(c.file)) === rule && fitComponent(c.file, c.size, { asDrawn: c.asDrawn }))
     .sort((a, b) => a.file.localeCompare(b.file))
     .slice(0, max);
 }
 
 async function candidate(client: BridgeClient, entry: CatalogEntry): Promise<Candidate> {
-  const fit = fitComponent(entry.file, entry.size)!;
+  const fit = fitComponent(entry.file, entry.size, { asDrawn: entry.asDrawn })!;
   const res = await client.call("componentPreview", { file: entry.file });
   return { entry, size: fit.size, scaled: fit.scale !== 1, preview: res.ok ? res.data.path : null };
 }

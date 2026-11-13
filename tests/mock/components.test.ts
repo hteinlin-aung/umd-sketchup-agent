@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scorePlan } from "../../src/agent/bench";
-import { fitComponent, fitProblem, loadCatalog, plausibility, renderCatalog, turnedSize } from "../../src/agent/catalog";
+import { fitComponent, fitProblem, loadCatalog, plausibility, readAsDrawn, renderCatalog, turnedSize } from "../../src/agent/catalog";
 import type { DraftStep } from "../../src/agent/draft";
 import { executePlan } from "../../src/agent/execute";
 import { checkAnswer } from "../../src/agent/planner";
@@ -115,6 +115,30 @@ describe("scale-to-fit: what size should it be? (real sizes from Windows, 2026-1
     expect(fitProblem("3DW_easel_white_canvas.skp", [2.93, 3.6, 1.77])).toMatch(/proportions don't fit an easel: at 1\.77 m high it would be 3\.6 m wide \(easel is at most 1\.3 m\)/);
     expect(fitComponent("3DW_Round marble coffee table.skp", [2.0, 2.0, 0.42])).toBeNull(); // right height, far too wide
     expect(fitComponent("3DW_Round marble coffee table.skp", [0.9, 0.9, 0.42])!.scale).toBe(1); // a normal one
+  });
+
+  it("a file on your 'right as drawn' list keeps its real size: the 24 m banyan (Windows, 2026-11-13)", () => {
+    const banyan = "3DW_banyan_tree_3D_MananC.skp";
+    expect(fitComponent(banyan, [24.33, 24, 15])).toBeNull(); // without the list: refused, can't tell
+    expect(fitComponent(banyan, [24.33, 24, 15], { asDrawn: true })).toEqual({ scale: 1, size: [24.33, 24, 15], reason: null });
+    const inTheVoid = fitComponent(banyan, [24.33, 24, 15], { asDrawn: true, roomHeight: 13.8 })!; // the ceiling still counts
+    expect(inTheVoid.size[2]).toBeCloseTo(13.6, 3);
+    expect(fitComponent("3DW_coffee_table_marble_round.skp", [3.955, 3.915, 2.636], { asDrawn: true })!.scale).toBe(1); // your call
+  });
+
+  it("reads the list: one file name per line, notes after #, .skp optional, unknown names reported", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "umd-ad-"));
+    const list = join(dir, "as_drawn.txt");
+    writeFileSync(list, "# my big files\n3DW_Banyan tree   # a real one\n\n3DW_Not here.skp\n");
+    expect(readAsDrawn(list)).toEqual(["3DW_Banyan tree", "3DW_Not here.skp"]);
+    const { catalog, problems } = await loadCatalog(new BridgeClient(new MockSketchUp({ scene: "reception" })), { cachePath: cache(), asDrawnPath: list });
+    expect(catalog.get("3DW_Banyan tree.skp")!.asDrawn).toBe(true);
+    expect(catalog.get("3DW_Money tree potted.skp")!.asDrawn).toBeUndefined();
+    expect(problems).toContain(`3DW_Not here.skp: listed in ${list} but not in the components folder`);
+  });
+
+  it("the repo's own list names the banyan", () => {
+    expect(readAsDrawn()).toContain("3DW_banyan_tree_3D_MananC.skp");
   });
 
   it("always fits under the ceiling", () => {

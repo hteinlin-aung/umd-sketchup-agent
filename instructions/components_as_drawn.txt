@@ -1,0 +1,5 @@
+# Component files whose size is RIGHT as drawn, however big. One file name per line (".skp" optional).
+# The agent then never resizes them from their name; only the ceiling limit still applies.
+# Add a file here when `npm run components` says CAN'T BE PLACED but you know the size is real.
+
+3DW_banyan_tree_3D_MananC.skp   # a real banyan: 24 m across, 15 m high (the void garden has one)

@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { renderBench, benchOnce, type BenchRun } from "../agent/bench";
 import { parseBrief } from "../agent/brief";
-import { catalogCache, loadCatalog, type Catalog } from "../agent/catalog";
+import { AS_DRAWN_LIST, catalogCache, loadCatalog, type Catalog } from "../agent/catalog";
 import { Draft } from "../agent/draft";
 import { LlmError, ollamaLlm, ollamaUnload } from "../agent/llm";
 import { BridgeClient } from "../bridge/client";
@@ -52,7 +52,11 @@ async function main(): Promise<number> {
   const summary = await summarizeRoom(client, { persistentId: room.persistentId });
   const summaryText = renderSummary(summary);
   writeFileSync(`${dir}/summary.md`, summaryText + "\n");
-  opts.catalog = (await loadCatalog(client, { canMeasure: false, cachePath: catalogCache(args.includes("--mock")) })).catalog;
+  opts.catalog = (await loadCatalog(client, {
+    canMeasure: false,
+    cachePath: catalogCache(args.includes("--mock")),
+    asDrawnPath: args.includes("--mock") ? undefined : AS_DRAWN_LIST,
+  })).catalog;
   console.log(
     `room read: ${summary.items.length} items. ${models.length} model(s) x ${runs} runs, ${brief.changes.length} changes each, ` +
       `${args.includes("--warm") ? "WARM (model kept loaded)" : "each run cold (model unloaded first)"}.\n`,

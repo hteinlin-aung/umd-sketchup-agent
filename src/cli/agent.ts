@@ -8,7 +8,7 @@
 // Everything is saved in runs/agent_<time>/ (summary, the model's answers, draft, plan, report).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { catalogCache, loadCatalog } from "../agent/catalog";
+import { AS_DRAWN_LIST, catalogCache, loadCatalog } from "../agent/catalog";
 import { chooseComponents } from "../agent/choose";
 import { executePlan, renderReport } from "../agent/execute";
 import { Draft } from "../agent/draft";
@@ -69,6 +69,7 @@ async function main(): Promise<number> {
   const { catalog, problems: catalogProblems } = await loadCatalog(client, {
     canMeasure: !dry && !/master/i.test(ping.data.modelTitle),
     cachePath: catalogCache(mock),
+    asDrawnPath: mock ? undefined : AS_DRAWN_LIST,
     onMeasure: (file, i, n) => console.log(`  measuring component ${i}/${n}: ${file}`),
   });
   console.log(`  ${catalog.size} components available${catalogProblems.length ? ` (${catalogProblems.length} not usable, see: npm run components)` : ""}`);

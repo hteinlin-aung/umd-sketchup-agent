@@ -180,9 +180,9 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
           break;
         }
         const roomHeight = summary.room.bounds.max[2] - (floorZ + step.base);
-        const fit = fitComponent(entry.file, entry.size, { roomHeight, wanted: step.size });
+        const fit = fitComponent(entry.file, entry.size, { roomHeight, wanted: step.size, asDrawn: entry.asDrawn });
         if (!fit) {
-          errors.push(`line ${step.line}: ${entry.file}: ${fitProblem(entry.file, entry.size, { roomHeight, wanted: step.size })}`);
+          errors.push(`line ${step.line}: ${entry.file}: ${fitProblem(entry.file, entry.size, { roomHeight, wanted: step.size, asDrawn: entry.asDrawn })}`);
           break;
         }
         const [ew, ns, h] = turnedSize(fit.size, step.rotation);
