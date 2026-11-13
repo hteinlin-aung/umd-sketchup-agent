@@ -23,10 +23,14 @@ Do these in order. Each step says what you should see.
    cd E:\Cowork_Field\umd-sketchup-agent
    git pull
    ```
-2. **Reload the bridge** (the Ruby part inside SketchUp): Extensions ▸ UMD Bridge ▸ Reload.
+2. **Reload the bridge** (the Ruby part inside SketchUp): Extensions ▸ UMD Bridge ▸ Reload (after git pull).
 3. **Open a dev copy**, never the MASTER, for example `E:\Cowork_Field\Thesis_SketchUp\dev\UMD_DEV_1F_meditation.skp`.
-   For collision tests use a copy that has the building in it (walls, columns).
-   `UMD_DEV_1F_reception.skp` has no building, so the check has nothing to hit there.
+   For collision tests use a copy that has the building in it (walls, columns):
+   `UMD_DEV_1F_meditation.skp` (all of 1F), `UMD_DEV_2F.skp`, `UMD_DEV_3F.skp`, `UMD_DEV_FULL_copy.skp` (the whole MASTER).
+   `UMD_DEV_1F_reception.skp` has no building, so the check has nothing to hit there (the run warns about it).
+   - Open **one SketchUp window only**: every open window runs a bridge, and they take turns answering.
+   - A copy's name must start with `UMD_DEV_` (`target.txt`) and must **not** contain "master": the bridge
+     refuses every change to a file whose name contains it.
 4. **Check SketchUp is listening.**
    ```powershell
    npm run ping
@@ -45,8 +49,8 @@ Do these in order. Each step says what you should see.
    The saved copy is next to the dev model, for example `UMD_DEV_1F_meditation_build_20261113_231558.skp`.
 9. **Close the dev model without saving**, so the next run starts clean.
 
-> Start full AI runs yourself in PowerShell. The Windows Claude chat cannot reach Ollama from its shell,
-> and its commands stop after 45 s. It can run `--draft` runs (no AI) that finish quickly.
+> Start full AI runs yourself in PowerShell: the Windows Claude chat cannot reach Ollama from its shell.
+> It can run `--draft` runs (no AI) itself, as long as they finish within about 3 minutes (one command's limit).
 
 ### The outcome
 
@@ -54,9 +58,12 @@ Every run ends with exactly one of these:
 
 | Outcome | Meaning | What to do |
 |---|---|---|
-| `SUCCESS` | Everything ran, the read-back was clean, the copy is saved | Open the copy and look |
-| `BLOCKED` | Nothing was saved: the plan had a problem the code can't fix, an action failed, or you typed n | Read the reasons in the report; fix the brief |
-| `MAX_ATTEMPTS_REACHED` | The automatic repair tried 3 times and a block still cuts into the model | The rest is saved; the report lists what gave up |
+| `SUCCESS` | Everything ran, the read-back was clean, the copy is saved (automatic moves you approved are listed) | Open the copy and look |
+| `BLOCKED` | Nothing was saved: the plan had a problem the code can't fix, an action failed, the read-back failed, or you typed n | Read the reasons in the report; fix the brief |
+| `MAX_ATTEMPTS_REACHED` | A limited retry gave up. Either the automatic repair moved a block 3 times and it still cuts into the model (then **nothing** ran), or the AI could not plan one change in its 2 tries (then the rest ran and **is** saved) | The report says which; read `model_answers.json` for the AI case |
+| `NOT RUN` | `--dry`: plan only | |
+
+If a line says **NOT CHECKED**, the model had no building around the room, so walls and columns were not checked.
 
 ### What a run leaves in `runs/agent_<time>/`
 
@@ -67,8 +74,10 @@ Every run ends with exactly one of these:
 | `draft.json` | The plan the AI wrote, after checking. You can re-run it with `--draft` (no AI) |
 | `draft.repaired.json` | Only if the repair moved a block |
 | `plan.json` | The exact tool calls, with coordinates |
-| `model_answers.json`, `outcomes.json` | The AI's raw answers, one per change |
+| `model_answers.json`, `outcomes.json` | AI runs only: the AI's raw answers, one per try, each with the checker's reply |
 | `choices.json` | Only if you picked components |
+
+The pictures (one eye-level view per group of new pieces) are in `E:\Cowork_Field\Thesis_SketchUp\agent_queue\images\`.
 
 ---
 
@@ -246,11 +255,13 @@ Every command is logged in `agent_queue/bridge_log.jsonl`. Long tools are normal
 2. Edit `.env`: `UMD_TRANSPORT=file`, check `UMD_QUEUE_DIR` (default `E:/Cowork_Field/Thesis_SketchUp/agent_queue`)
    and `OLLAMA_MODEL=qwen3:8b`. Keep `UMD_ALLOW_PAID=false`.
 3. Install the loader: copy `sketchup\umd_bridge_loader.example.rb` to
-   `C:\Users\user\AppData\Roaming\SketchUp\SketchUp 2025\SketchUp\Plugins\umd_bridge.rb`
+   `%APPDATA%\SketchUp\SketchUp 2025\SketchUp\Plugins\umd_bridge.rb`
+   (paste that path into Explorer's address bar; it is your own Windows user folder)
    and check the two paths at the top of the copy.
 4. Create `E:\Cowork_Field\Thesis_SketchUp\agent_queue\target.txt` with one line: `UMD_DEV_`
 5. Install Ollama and run `ollama pull qwen3:8b`.
-6. Restart SketchUp. Extensions ▸ UMD Bridge ▸ Status should say RUNNING.
+6. Restart SketchUp. Extensions ▸ UMD Bridge ▸ Status should say RUNNING. Close that box with OK: while any
+   dialog is open in SketchUp (Status, Model Info, the Welcome screen), the bridge is paused.
 7. Set your git name once: `git config user.name "…"` and `git config user.email "…"`.
 
 ---
