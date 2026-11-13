@@ -38,6 +38,8 @@ function signature(a: Action): string {
       return `${args.visible ? "show" : "hide"} tag ${args.tag}`;
     case "captureView":
       return "screenshot";
+    case "addScene":
+      return `scene ${(args.eye as number[]).map(cm).join(",")} -> ${(args.target as number[]).map(cm).join(",")}`;
     case "saveCopy":
       return "save";
     default:

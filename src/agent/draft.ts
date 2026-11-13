@@ -82,8 +82,24 @@ const ShowTag = z.strictObject({ op: z.literal("showTag"), tag: Label });
 const Screenshot = z.strictObject({ op: z.literal("screenshot") });
 const Save = z.strictObject({ op: z.literal("save"), fileName: z.string().trim().min(1).max(80) });
 
+/**
+ * A saved camera view (a SketchUp scene, which D5 picks up). The model never gives coordinates:
+ * - from "south" (or any compass side/corner): standing just inside that side of the room, at eye height;
+ * - from "R6": standing just inside that item (the entrance, a window), on the room's side of it;
+ * - from "above": the whole room from the south-east, above (like the screenshot).
+ * It looks at the middle of the room, or at `toward` when the brief says what the view is of.
+ */
+export const SCENE_FROM = ["north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest", "above"] as const;
+const Scene = z.strictObject({
+  op: z.literal("scene"),
+  name: Label,
+  from: z.string().trim().regex(new RegExp(`^(R\\d{1,3}|${SCENE_FROM.join("|")})$`), 'a side of the room ("south", "northeast" ...), "above", or an item ref like "R6"'),
+  toward: Ref.optional(),
+  eyeHeight: Metres(0.3, 3).default(1.6),
+});
+
 /** One step as the model writes it for ONE brief change (the code adds the line number). */
-export const ChangeStep = z.discriminatedUnion("op", [Replace, Build, Place, HideTag, ShowTag, Screenshot, Save]);
+export const ChangeStep = z.discriminatedUnion("op", [Replace, Build, Place, HideTag, ShowTag, Screenshot, Scene, Save]);
 export type ChangeStep = z.infer<typeof ChangeStep>;
 
 /** A step in the whole draft: the same, plus the brief line it comes from. */
@@ -94,6 +110,7 @@ export const DraftStep = z.discriminatedUnion("op", [
   HideTag.extend({ line: Line }),
   ShowTag.extend({ line: Line }),
   Screenshot.extend({ line: Line }),
+  Scene.extend({ line: Line }),
   Save.extend({ line: Line }),
 ]);
 export type DraftStep = z.infer<typeof DraftStep>;

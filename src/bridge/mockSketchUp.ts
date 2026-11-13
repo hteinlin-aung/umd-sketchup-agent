@@ -270,6 +270,15 @@ export class MockSketchUp implements Transport {
       }
       case "placeComponent":
         return { data: this.placeComponent(args as ArgsOut<"placeComponent">), modified: true, warnings: [] };
+      case "addScene": {
+        const a = args as ArgsOut<"addScene">;
+        let name = a.name;
+        for (let n = 2; this.scenes.includes(name); n++) name = `${a.name} (${n})`;
+        this.scenes.push(name);
+        const warnings = name !== a.name ? [`a scene called "${a.name}" already exists, so this one is "${name}"`] : [];
+        const hiddenTags = [...this.tags].filter(([, visible]) => !visible).map(([t]) => t);
+        return { data: { name, renamed: name !== a.name, sceneCount: this.scenes.length, eye: a.eye, target: a.target, fov: a.fov, hiddenTags }, modified: true, warnings };
+      }
     }
   }
 

@@ -404,6 +404,37 @@ export const PlaceComponentData = EntityRef.extend({
 export const ComponentPreviewArgs = z.strictObject({ file: ComponentFile });
 export const ComponentPreviewData = z.object({ file: z.string(), path: z.string(), bytes: z.number().int() });
 
+// ---------- addScene (Week 3) ----------
+
+/**
+ * A saved camera view (a SketchUp scene, a tab at the top of the window). D5 Render and SketchUp's own
+ * Scenes panel both use these. The scene remembers the camera AND which tags are visible right now.
+ * Up is always straight up (z), so walls stay vertical. If the name is taken, the bridge adds " (2)", " (3)" ...
+ * and never changes a scene you already have.
+ */
+export const AddSceneArgs = z
+  .strictObject({
+    name: Name,
+    eye: Vec3, // where the camera stands (metres)
+    target: Vec3, // the point it looks at (metres)
+    fov: z.number().min(10).max(120).default(55), // field of view in degrees (SketchUp measures it top to bottom)
+  })
+  .refine((a) => Math.hypot(a.eye[0] - a.target[0], a.eye[1] - a.target[1], a.eye[2] - a.target[2]) >= 0.1, {
+    message: "eye and target must be at least 0.1 m apart",
+  })
+  .refine((a) => Math.hypot(a.eye[0] - a.target[0], a.eye[1] - a.target[1]) >= 0.01, {
+    message: "the camera can't look straight up or down (up is always z)",
+  });
+export const AddSceneData = z.object({
+  name: z.string(), // the name it got (with " (2)" if the asked name was taken)
+  renamed: z.boolean(),
+  sceneCount: z.number().int(),
+  eye: Vec3,
+  target: Vec3,
+  fov: z.number(),
+  hiddenTags: z.array(z.string()), // the tags this scene keeps hidden
+});
+
 // ---------- the registry ----------
 
 /**
@@ -431,6 +462,7 @@ export const TOOLS = {
   componentInfo: { args: ComponentInfoArgs, data: ComponentInfoData, kind: "write", changesModel: false },
   placeComponent: { args: PlaceComponentArgs, data: PlaceComponentData, kind: "write", changesModel: true },
   componentPreview: { args: ComponentPreviewArgs, data: ComponentPreviewData, kind: "read", changesModel: false },
+  addScene: { args: AddSceneArgs, data: AddSceneData, kind: "write", changesModel: true },
 } as const satisfies Record<string, { args: z.ZodType; data: z.ZodType; kind: ToolKind; changesModel: boolean }>;
 
 export type ToolName = keyof typeof TOOLS;

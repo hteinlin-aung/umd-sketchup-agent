@@ -85,9 +85,9 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   // so for those only a runaway count is an error.
   const seen = new Map<string, number>();
   for (const step of draft.steps) {
-    if (step.op !== "build" && step.op !== "replace" && step.op !== "save") continue;
+    if (step.op !== "build" && step.op !== "replace" && step.op !== "save" && step.op !== "scene") continue;
     const { line: _line, ...rest } = step;
-    const key = JSON.stringify(step.op === "build" ? { ...rest, id: "" } : rest);
+    const key = JSON.stringify(step.op === "build" ? { ...rest, id: "" } : step.op === "scene" ? { op: "scene", name: step.name.toLowerCase() } : rest);
     if (seen.has(key)) errors.push(`line ${step.line}: the same ${step.op} step appears more than once (first at line ${seen.get(key)})`);
     else seen.set(key, step.line);
   }
@@ -95,6 +95,8 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   if (tagFlips > 6) errors.push(`${tagFlips} tag hide/show steps: the plan is repeating itself`);
   const shots = draft.steps.filter((st) => st.op === "screenshot").length;
   if (shots > 3) errors.push(`${shots} screenshots: the plan is repeating itself`);
+  const sceneCount = draft.steps.filter((st) => st.op === "scene").length;
+  if (sceneCount > 8) errors.push(`${sceneCount} scenes: the plan is repeating itself`);
 
   for (const step of draft.steps) {
     if (savedAt !== null && step.op !== "save") {
@@ -245,6 +247,34 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
         });
         break;
 
+      case "scene": {
+        const cam = sceneCamera(step, summary, refs, errors);
+        if (!cam) break;
+        const hidden = [...new Set([...summary.tags.filter((tg) => !tg.visible).map((tg) => tg.name), ...hiddenTags])].filter((t) => !/^zz_REPLACED/i.test(t));
+        const warnings = [...cam.warnings];
+        const [ex, ey, ez] = cam.eye;
+        if (step.from !== "above") {
+          const inside = (b: Bounds) => ex > b.min[0] && ex < b.max[0] && ey > b.min[1] && ey < b.max[1] && ez > b.min[2] && ez < b.max[2];
+          for (const it of summary.items) if (it.visible && inside(it.bounds)) warnings.push(`the camera stands inside the box of ${it.ref} "${short(it.name)}" (boxes only: look at the scene)`);
+          for (const [id, b] of built) {
+            if (inside({ min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] })) warnings.push(`the camera stands inside ${id} "${b.name}" from this plan`);
+          }
+        }
+        add({
+          line: step.line,
+          title: `SCENE "${step.name}"  (${cam.what})`,
+          tool: "addScene",
+          args: { name: step.name, eye: cam.eye, target: cam.target, fov: cam.fov },
+          details: [
+            `camera at ${cam.eye.map(fmt).join(", ")}, looking at ${cam.target.map(fmt).join(", ")} (metres), field of view ${cam.fov}°`,
+            hidden.length ? `the scene keeps these tags hidden: ${hidden.join(", ")}` : "every tag is visible in this scene",
+            "a new scene tab: D5 can render it; an existing scene with this name is never changed (this one gets \" (2)\")",
+          ],
+          warnings,
+        });
+        break;
+      }
+
       case "save": {
         const base = safeName(step.fileName.replace(/\.skp$/i, ""));
         savedAt = actions.length;
@@ -272,6 +302,102 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   if (!actions.some((a) => a.tool === "saveCopy")) errors.push("the plan never saves a copy, so the result would be lost");
 
   return { runId: opts.runId, jobGroup, floorZ, modelPath: summary.modelPath, actions, errors, notDone: draft.notDone };
+}
+
+const SCENE_INSET = 0.6; // the camera stands this far in from the side of the room (clear of a wall)
+const COMPASS: Record<string, [number, number]> = {
+  north: [0, 1], south: [0, -1], east: [1, 0], west: [-1, 0],
+  northeast: [1, 1], northwest: [-1, 1], southeast: [1, -1], southwest: [-1, -1],
+};
+
+/**
+ * Where a scene's camera stands and what it looks at, worked out from the room's box (never by the model).
+ * Eye-level views look straight ahead (target at eye height), so walls stay vertical, like a designer's photo.
+ */
+export function sceneCamera(
+  step: { line: number; name: string; from: string; toward?: string; eyeHeight: number },
+  summary: RoomSummary,
+  refs: Map<string, SummaryItem>,
+  errors: string[],
+): { eye: [number, number, number]; target: [number, number, number]; fov: number; what: string; warnings: string[] } | null {
+  const room = summary.room.bounds;
+  const mid = (b: Bounds, i: number) => (b.min[i]! + b.max[i]!) / 2;
+  const warnings: string[] = [];
+  let toward: SummaryItem | undefined;
+  if (step.toward) {
+    toward = refs.get(step.toward);
+    if (!toward) {
+      errors.push(`line ${step.line}: the scene looks toward ${step.toward}, which is not in the room summary`);
+      return null;
+    }
+  }
+  const r3 = (p: number[]) => p.map(round) as [number, number, number];
+
+  if (step.from === "above") {
+    const box = toward?.bounds ?? room;
+    const c = [mid(box, 0), mid(box, 1), mid(box, 2)];
+    const diag = Math.hypot(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]);
+    const fov = 35;
+    const distance = (Math.max(diag / 2, 1) / Math.tan(((fov / 2) * Math.PI) / 180)) * 1.15;
+    const d = [1, -1, 0.8];
+    const len = Math.hypot(d[0]!, d[1]!, d[2]!);
+    return {
+      eye: r3(c.map((v, i) => v + (d[i]! / len) * distance)),
+      target: r3(c),
+      fov,
+      what: `from above the south-east corner, the whole ${toward ? `${toward.ref} "${short(toward.name)}"` : "room"}`,
+      warnings,
+    };
+  }
+
+  const z = summary.floor.z + step.eyeHeight;
+  const inset = (v: number, i: number) => Math.min(Math.max(v, room.min[i]! + SCENE_INSET), room.max[i]! - SCENE_INSET);
+  let eye: [number, number];
+  let where: string;
+  const compass = COMPASS[step.from];
+  if (compass) {
+    eye = [
+      compass[0] > 0 ? room.max[0] - SCENE_INSET : compass[0] < 0 ? room.min[0] + SCENE_INSET : mid(room, 0),
+      compass[1] > 0 ? room.max[1] - SCENE_INSET : compass[1] < 0 ? room.min[1] + SCENE_INSET : mid(room, 1),
+    ];
+    where = `eye level (${fmt(step.eyeHeight)} m) from the ${step.from} ${compass[0] && compass[1] ? "corner" : "side"} of the room`;
+  } else {
+    const from = refs.get(step.from);
+    if (!from) {
+      errors.push(`line ${step.line}: the scene stands at ${step.from}, which is not in the room summary`);
+      return null;
+    }
+    // Step out of the item toward what the view looks at (or the room's middle), then a little further.
+    const c = [mid(from.bounds, 0), mid(from.bounds, 1)];
+    const goal = toward ? [mid(toward.bounds, 0), mid(toward.bounds, 1)] : [mid(room, 0), mid(room, 1)];
+    let dx = goal[0]! - c[0]!;
+    let dy = goal[1]! - c[1]!;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.01) {
+      errors.push(`line ${step.line}: ${from.ref} is in the middle of the room, so "from ${from.ref}" has no direction; use a side of the room instead`);
+      return null;
+    }
+    dx /= len;
+    dy /= len;
+    const half = [(from.bounds.max[0] - from.bounds.min[0]) / 2, (from.bounds.max[1] - from.bounds.min[1]) / 2];
+    const exit = Math.min(Math.abs(dx) > 1e-9 ? half[0]! / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-9 ? half[1]! / Math.abs(dy) : Infinity);
+    const raw: [number, number] = [c[0]! + dx * (exit + SCENE_INSET), c[1]! + dy * (exit + SCENE_INSET)];
+    eye = [inset(raw[0], 0), inset(raw[1], 1)];
+    if (Math.hypot(eye[0] - raw[0], eye[1] - raw[1]) > 0.01) warnings.push("the camera was moved to stay inside the room");
+    where = `eye level (${fmt(step.eyeHeight)} m) just inside ${from.ref} "${short(from.name)}"`;
+  }
+  const target: [number, number] = toward ? [mid(toward.bounds, 0), mid(toward.bounds, 1)] : [mid(room, 0), mid(room, 1)];
+  if (Math.hypot(target[0] - eye[0], target[1] - eye[1]) < 0.5) {
+    errors.push(`line ${step.line}: the scene "${step.name}" would stand on top of what it looks at; choose another side`);
+    return null;
+  }
+  return {
+    eye: r3([eye[0], eye[1], z]),
+    target: r3([target[0], target[1], z]),
+    fov: 55,
+    what: `${where}, looking at ${toward ? `${toward.ref} "${short(toward.name)}"` : "the middle of the room"}`,
+    warnings,
+  };
 }
 
 /** The catalog entry for a file name; small models sometimes drop ".skp" or change the case. */

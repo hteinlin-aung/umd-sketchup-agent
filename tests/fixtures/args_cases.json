@@ -1523,5 +1523,131 @@
       "file": "3DW_Banyan tree.skp",
       "size": 512
     }
+  },
+  {
+    "tool": "addScene",
+    "valid": true,
+    "args": {
+      "name": "Reception - from the entrance",
+      "eye": [
+        10,
+        5.6,
+        3.09
+      ],
+      "target": [
+        15,
+        10,
+        3.09
+      ]
+    }
+  },
+  {
+    "tool": "addScene",
+    "valid": true,
+    "args": {
+      "name": "Reception - iso",
+      "eye": [
+        40,
+        -20,
+        30
+      ],
+      "target": [
+        15,
+        10,
+        3
+      ],
+      "fov": 35
+    }
+  },
+  {
+    "tool": "addScene",
+    "valid": false,
+    "args": {
+      "name": "x",
+      "eye": [
+        1,
+        1,
+        1
+      ],
+      "target": [
+        1,
+        1,
+        1.05
+      ]
+    }
+  },
+  {
+    "tool": "addScene",
+    "valid": false,
+    "args": {
+      "name": "x",
+      "eye": [
+        1,
+        1,
+        10
+      ],
+      "target": [
+        1,
+        1,
+        0
+      ]
+    }
+  },
+  {
+    "tool": "addScene",
+    "valid": false,
+    "args": {
+      "name": "x",
+      "eye": [
+        0,
+        0,
+        1
+      ],
+      "target": [
+        5,
+        5,
+        1
+      ],
+      "fov": 150
+    }
+  },
+  {
+    "tool": "addScene",
+    "valid": false,
+    "args": {
+      "name": "",
+      "eye": [
+        0,
+        0,
+        1
+      ],
+      "target": [
+        5,
+        5,
+        1
+      ]
+    }
+  },
+  {
+    "tool": "addScene",
+    "valid": false,
+    "args": {
+      "name": "x",
+      "eye": [
+        0,
+        0,
+        1
+      ],
+      "target": [
+        5,
+        5,
+        1
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ]
+    }
   }
 ]

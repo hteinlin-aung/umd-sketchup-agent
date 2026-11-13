@@ -78,6 +78,8 @@ export async function executePlan(
     } else if (a.tool === "saveCopy") {
       savedPath = String(data.path);
       message = `saved ${savedPath} (${data.bytes} bytes)`;
+    } else if (a.tool === "addScene") {
+      message = `scene "${String(data.name)}"${data.renamed ? " (the name was taken)" : ""}, ${data.sceneCount} scenes in the model`;
     } else if (a.tool === "captureView") {
       imagePath = String(data.path);
       message = `image ${imagePath}`;

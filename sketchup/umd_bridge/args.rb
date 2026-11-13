@@ -352,6 +352,16 @@ module UMDBridge
       { 'file' => Args.component_file(a, 'file') }
     end
 
+    def addScene(a)
+      Args.only!(a, %w[name eye target fov])
+      eye = Args.vec3(a, 'eye')
+      target = Args.vec3(a, 'target')
+      d = (0..2).map { |i| eye[i] - target[i] }
+      raise Args.invalid('target', 'eye and target must be at least 0.1 m apart') if Math.sqrt(d.sum { |v| v * v }) < 0.1
+      raise Args.invalid('target', "the camera can't look straight up or down (up is always z)") if Math.hypot(d[0], d[1]) < 0.01
+      { 'name' => Args.name(a, 'name'), 'eye' => eye, 'target' => target, 'fov' => Args.number(a, 'fov', 10, 120, 55) }
+    end
+
     def saveCopy(a)
       Args.only!(a, %w[fileName])
       f = Args.file_name(a, 'fileName', 'skp')

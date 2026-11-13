@@ -29,7 +29,7 @@ Answer: {"type": "steps" | "rule" | "notPossible", "steps": [...], "reason": "..
 - "steps": the change is done with the operations below (usually 1 to 4 steps).
 - "rule": the change only says which tag, material or name OTHER changes must use. No steps.
 - "notPossible": it needs something not in the list below (doors, 3D Warehouse components, lowering a
-  floor, a camera scene). Say which in "reason". No steps.
+  floor). Say which in "reason". No steps.
 
 Operations:
 - {"op":"replace","target":"R5"}  hide an existing item (moved to a hidden "replaced" tag, never deleted)
@@ -54,6 +54,12 @@ Operations:
     sees similar ones and makes the final choice, so pick the one whose name fits the brief best.
 - {"op":"hideTag","tag":"..."}   {"op":"showTag","tag":"..."}
 - {"op":"screenshot"}   (the program frames the view)
+- {"op":"scene","name":"...","from":"south","toward":"R3","eyeHeight":1.6}
+    a saved camera view (a SketchUp scene, for D5). Only when the change asks for a scene or a camera view.
+    from: where the camera stands: a side or corner of the room ("north", "southeast" ...), an item ref
+      ("R6" = just inside that item, e.g. the entrance), or "above" (the whole room from above).
+    toward: optional, the item ref the view looks at; leave it out to look at the middle of the room.
+    eyeHeight: metres above the floor (1.6 standing, 1.1 seated). The program works out the camera.
 - {"op":"save","fileName":"..."}
 
 Rules:
@@ -263,7 +269,7 @@ export function checkAnswer(
   if (answer.type === "notPossible" && VAGUE_REASON.test(answer.reason)) {
     problems.push("positions, coordinates, alignment and the camera are calculated by the program, so they never make a change impossible; use build/screenshot steps");
   }
-  if (answer.type === "rule" && /\b(add|build|hide|replace|take out|save|screenshot)\b/i.test(change.text) && !/\b(put|use|tag|material)\b.{0,40}\b(everything|all|new)\b/i.test(change.text)) {
+  if (answer.type === "rule" && /\b(add|build|hide|replace|take out|save|screenshot|scene)\b/i.test(change.text) && !/\b(put|use|tag|material)\b.{0,40}\b(everything|all|new)\b/i.test(change.text)) {
     problems.push(`change ${change.line} asks for something to be done, so it is not only a rule; give its steps`);
   }
 
@@ -336,12 +342,14 @@ function directionPhrases(text: string): DirectionPhrase[] {
 }
 
 function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: DraftStep[], summary: RoomSummary, brief?: Brief): string[] {
-  const t = change.text;
+  // "save a scene" is a scene, not a save of the file.
+  const t = change.text.replace(/\bsave\b(?=[^.;]{0,25}\b(?:scenes?|camera views?)\b)/gi, "add");
   const problems: string[] = [];
   const has = (op: ChangeStep["op"]) => answer.steps.some((st) => st.op === op);
 
   const wantsComponent = COMPONENT_WORDS.test(t);
-  if (/\d(\.\d+)?\s*m\b/.test(t) && answer.type === "steps" && !has("build") && !has("place") && !/\bplace\b/i.test(t)) {
+  // (A scene's eye height, "seated eye height (1.1 m)", is a size too, but not of anything new.)
+  if (/\d(\.\d+)?\s*m\b/.test(t) && answer.type === "steps" && !has("build") && !has("place") && !has("scene") && !/\bplace\b/i.test(t)) {
     problems.push(`change ${change.line} gives sizes in metres for something new, so it needs a "build" step`);
   }
   if (wantsComponent && answer.type === "steps" && !has("place")) {
@@ -412,6 +420,7 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
     problems.push(`change ${change.line} doesn't ask for a screenshot; remove it (the plan already shows what replaced items contain)`);
   }
   if (has("save") && !/\bsave\b/i.test(t)) problems.push(`change ${change.line} doesn't ask to save; remove the save step`);
+  if (has("scene") && !/\bscenes?\b|\bcamera views?\b/i.test(t)) problems.push(`change ${change.line} doesn't ask for a scene; remove the scene step`);
   if (has("replace") && !/take out|remov|replac|get rid of/i.test(t)) {
     problems.push(`change ${change.line} doesn't ask to take anything out; remove the replace step`);
   }
@@ -427,6 +436,7 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
     const asked: [boolean, ChangeStep["op"], string][] = [
       [/\bscreenshot\b|\bphoto\b|\bpicture\b/i.test(t), "screenshot", "a screenshot"],
       [/\bsave\b/i.test(t), "save", "a save"],
+      [/\bscenes?\b|\bcamera views?\b/i.test(t), "scene", "a scene"],
       [/\bhide\b/i.test(t), "hideTag", "a tag hidden"],
       [/\bshow\b[^.;]{0,30}\btag\b|\bshow\b[^.;]{0,20}\bagain\b/i.test(t), "showTag", "a tag shown again"],
       [/\btake out\b|\bremove\b|\bget rid of\b/i.test(t), "replace", "something taken out"],

@@ -43,6 +43,43 @@ module UMDBridge
       Sketchup::Camera.new(eye, center, Z_AXIS, true, fov)
     end
 
+    # A saved camera view (scene). It remembers the camera and which tags are visible right now, which
+    # is what D5 Render picks up. An existing scene is never changed: a taken name gets " (2)", " (3)" ...
+    def addScene(args, ctx)
+      model = Sketchup.active_model
+      pages = model.pages
+      name = free_scene_name(pages, args['name'])
+      ctx[:warnings] << "a scene called \"#{args['name']}\" already exists, so this one is \"#{name}\"" if name != args['name']
+
+      view = model.active_view
+      c = view.camera
+      saved = Sketchup::Camera.new(c.eye, c.target, c.up, c.perspective?, c.fov)
+      begin
+        view.camera = Sketchup::Camera.new(Geo.pt(args['eye']), Geo.pt(args['target']), Z_AXIS, true, args['fov'])
+        page = pages.add(name) # takes the camera and tag visibility of the view as it is now
+      ensure
+        view.camera = saved # your own view comes back; the scene keeps its own camera
+      end
+      raise ToolError.new('VERIFY_FAILED', "the scene \"#{name}\" was not added") unless page && pages[name]
+
+      cam = page.camera
+      eye = [cam.eye.x, cam.eye.y, cam.eye.z].map { |v| Geo.i2m(v) }
+      target = [cam.target.x, cam.target.y, cam.target.z].map { |v| Geo.i2m(v) }
+      off = (0..2).map { |i| (eye[i] - args['eye'][i]).abs }.max
+      raise ToolError.new('VERIFY_FAILED', "the scene's camera is #{off.round(3)} m away from where it was asked") if off > 0.001
+
+      { 'name' => name, 'renamed' => name != args['name'], 'sceneCount' => pages.count,
+        'eye' => eye.map { |v| v.round(4) }, 'target' => target.map { |v| v.round(4) }, 'fov' => cam.fov.round(2),
+        'hiddenTags' => model.layers.reject(&:visible?).map(&:name) }
+    end
+
+    def free_scene_name(pages, wanted)
+      return wanted unless pages[wanted]
+      n = 2
+      n += 1 while pages["#{wanted} (#{n})"]
+      "#{wanted} (#{n})"
+    end
+
     def saveCopy(args, ctx)
       model = Sketchup.active_model
       folder = File.dirname(ctx[:model_path])

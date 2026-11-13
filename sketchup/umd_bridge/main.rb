@@ -49,12 +49,13 @@ module UMDBridge
       'listComponents' => :read,
       'componentInfo' => :write, # loads a file for a moment: only on a dev model
       'placeComponent' => :write,
-      'componentPreview' => :read # makes a PNG of a component FILE; the model is not touched
+      'componentPreview' => :read, # makes a PNG of a component FILE; the model is not touched
+      'addScene' => :write # a saved camera view (for D5); never changes an existing scene
     }
   end
 
   def self.version
-    '0.5.1'
+    '0.6.0'
   end
 
   def self.protocol
