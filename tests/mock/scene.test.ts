@@ -5,7 +5,8 @@ import { checkAnswer } from "../../src/agent/planner";
 import { resolveDraft, sceneCamera, segmentHitsBox } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
-import { summarizeRoom } from "../../src/summary/roomSummary";
+import { summarizeRoom, type RoomSummary, type SummaryItem } from "../../src/summary/roomSummary";
+import type { Bounds } from "../../src/protocol/tools";
 
 // MOCK: saved camera views (scenes, for D5) on the fake reception room (real positions from Windows).
 
@@ -83,6 +84,112 @@ describe("sceneCamera: the code places the camera", () => {
     const errors: string[] = [];
     expect(sceneCamera({ line: 8, name: "v", from: "R99", eyeHeight: 1.6 }, summary, refs, errors)).toBeNull();
     expect(errors.join()).toMatch(/R99, which is not in the room summary/);
+  });
+});
+
+// The real T133 summary from Windows (2026-11-13): one room group holding two rooms with a corridor between them.
+const t133 = (): { summary: RoomSummary; refs: Map<string, SummaryItem> } => {
+  const item = (ref: string, name: string, min: [number, number, number], max: [number, number, number], contents: string[]): SummaryItem => ({
+    ref, name, type: "Group", tag: name, visible: true, entityId: 1, persistentId: 1, path: [], bounds: { min, max },
+    size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]], contents, childCount: contents.length, categories: ["glass"], warnings: [], canChange: true,
+  });
+  const items = [
+    item("R1", "MEDITATION ROOM (T133) - stillness, zen focal point", [44.305, 69.43, 2.09], [64.655, 79.815, 5.085], ["Floor - M07 tatami", "Ceiling - M02 oak slats", "4× paper floor lantern"]),
+    item("R2", "BREATHING ROOM (T133) - floor-based breathing zone", [15, 69.15, 2.02], [34.6, 79.335, 4.99], ["Floor - M07 tatami", "Ceiling - suspended FR fabric sails"]),
+  ];
+  const summary: RoomSummary = {
+    room: { name: "1F MEDITATION + BREATHING ROOMS (T133)", entityId: 1, persistentId: 1, path: [], bounds: { min: [15, 69.15, 2.02], max: [64.655, 79.815, 5.085] }, size: [49.655, 10.665, 3.065] },
+    floor: { z: 1.489, source: "1F finish floor (confirmed levels)" },
+    modelPath: "E:/dev/UMD_DEV_1F_meditation.skp",
+    items,
+    tags: [],
+    materials: { design: [], otherCount: 0 },
+    notes: [],
+  };
+  return { summary, refs: new Map(items.map((it) => [it.ref, it])) };
+};
+const cam = (s: { summary: RoomSummary; refs: Map<string, SummaryItem> }, from: string, toward?: string) =>
+  sceneCamera({ line: 1, name: "v", from, toward, eyeHeight: 1.6 }, s.summary, s.refs, [])!;
+const inBox = (p: number[], b: Bounds) => p[0]! > b.min[0] && p[0]! < b.max[0] && p[1]! > b.min[1] && p[1]! < b.max[1];
+
+// Windows, 2026-11-13 (brief 4): "from the north side of the room, toward the MEDITATION ROOM" stood at the middle of
+// the whole T133 box - in the corridor between the two rooms - and looked at the outside of a wall.
+describe("sceneCamera: a side of the room, toward a big area", () => {
+  it("lines the camera up with the area: north toward the meditation room stands inside it, at its north edge", () => {
+    const s = t133();
+    const r1 = s.refs.get("R1")!.bounds;
+    const c = cam(s, "north", "R1");
+    expect(inBox(c.eye, r1)).toBe(true);
+    expect(c.eye[0]).toBeCloseTo((r1.min[0] + r1.max[0]) / 2, 2);
+    expect(c.eye[1]).toBeCloseTo(s.summary.room.bounds.max[1] - 0.6, 2);
+    expect(c.what).toMatch(/north side of the room, in line with R1/);
+  });
+
+  it('keeps the side itself on the room: "along the suite" (east, toward the breathing room) still looks down the whole suite', () => {
+    const s = t133();
+    const c = cam(s, "east", "R2");
+    expect(c.eye[0]).toBeCloseTo(s.summary.room.bounds.max[0] - 0.6, 2);
+    expect(c.eye[1]).toBeCloseTo((69.15 + 79.335) / 2, 2);
+  });
+
+  it("never stands inside a big object: Terrarium C (4.9 x 4.9 m glass column) from every side", async () => {
+    const { summary, refs } = await setup();
+    const r4 = refs.get("R4")!;
+    expect(Math.min(r4.size[0], r4.size[1])).toBeGreaterThanOrEqual(4);
+    for (const from of ["north", "south", "east", "west"]) {
+      const c = sceneCamera({ line: 1, name: "v", from, toward: "R4", eyeHeight: 1.6 }, summary, refs, [])!;
+      expect(inBox(c.eye, r4.bounds), from).toBe(false);
+      expect(c.eye[from === "north" || from === "south" ? 0 : 1]).toBeCloseTo(from === "north" || from === "south" ? (r4.bounds.min[0] + r4.bounds.max[0]) / 2 : (r4.bounds.min[1] + r4.bounds.max[1]) / 2, 2);
+    }
+  });
+
+  it("small items and corners are unchanged: the camera stays on the room's middle / corner", async () => {
+    const { summary, refs } = await setup();
+    const room = summary.room.bounds;
+    const small = sceneCamera({ line: 1, name: "v", from: "north", toward: "R1", eyeHeight: 1.6 }, summary, refs, [])!;
+    expect(small.eye[0]).toBeCloseTo((room.min[0] + room.max[0]) / 2, 2);
+    expect(small.what).not.toMatch(/in line with/);
+    const s = t133();
+    const corner = cam(s, "northeast", "R2");
+    expect(corner.eye[0]).toBeCloseTo(s.summary.room.bounds.max[0] - 0.6, 2);
+    expect(corner.eye[1]).toBeCloseTo(s.summary.room.bounds.max[1] - 0.6, 2);
+  });
+});
+
+// Windows, 2026-11-13: the T133 overview stood 92 m away, 33 m above the roof, and showed only roofs.
+describe("sceneCamera: from above warns when something is over the subject", () => {
+  it("names the floor above and the ceilings the summary lists", () => {
+    const c = cam(t133(), "above");
+    const w = c.warnings.join();
+    expect(w).toMatch(/the 2F floor \(5\.479 m\)/);
+    expect(w).toMatch(/the ceilings in R1, R2/);
+    expect(w).toMatch(/shows the roof, not the room/);
+  });
+
+  it("only the subject's ceilings when looking at one item", () => {
+    const w = cam(t133(), "above", "R1").warnings.join();
+    expect(w).toMatch(/the ceiling in R1 are over R1/);
+    expect(w).not.toMatch(/R2/);
+  });
+
+  it('"floor-to-ceiling glass" is not a ceiling', async () => {
+    const { summary, refs } = await setup();
+    const w = sceneCamera({ line: 1, name: "v", from: "above", eyeHeight: 1.6 }, summary, refs, [])!.warnings.join();
+    expect(w).toMatch(/ceilings in R4, R6, R7\b/);
+    expect(w).not.toMatch(/R8|R12/);
+  });
+
+  it("no warning off the UMD levels when nothing names a ceiling", () => {
+    const s = t133();
+    s.summary.floor.z = 0;
+    for (const it of s.summary.items) it.contents = ["Floor - tatami"];
+    expect(cam(s, "above").warnings).toEqual([]);
+  });
+
+  it("is a warning, not an error: the scene is still planned", () => {
+    const plan = resolveDraft({ steps: [{ op: "scene", line: 4, name: "overview", from: "above", eyeHeight: 1.6 }, SAVE], notDone: [] }, t133().summary, OPTS);
+    expect(plan.errors).toEqual([]);
+    expect(plan.actions.find((a) => a.tool === "addScene")!.warnings.join()).toMatch(/shows the roof/);
   });
 });
 

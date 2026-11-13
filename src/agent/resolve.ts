@@ -1,4 +1,5 @@
 import { TOOLS, type Bounds, type ToolName, type Vec2 } from "../protocol/tools";
+import { UMD_LEVELS } from "../project/umdLevels";
 import type { RoomSummary, SummaryItem } from "../summary/roomSummary";
 import { fitComponent, fitProblem, turnedSize, type Catalog, type CatalogEntry } from "./catalog";
 import type { Draft, DraftStep, Placement } from "./draft";
@@ -327,6 +328,29 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
   return { runId: opts.runId, jobGroup, floorZ, modelPath: summary.modelPath, actions, errors, notDone: draft.notDone };
 }
 
+/**
+ * What covers a "from above" view: the next UMD level over the room's floor (a floor slab or the roof) and ceilings
+ * the summary names over the subject. (Windows, 2026-11-13: the T133 overview stood 33 m above the roof and showed
+ * only roofs.) Levels are only used when the floor is a confirmed UMD finish floor.
+ */
+function coverOver(box: Bounds, toward: SummaryItem | undefined, summary: RoomSummary): string[] {
+  const out: string[] = [];
+  const floors = Object.entries(UMD_LEVELS).map(([name, l]) => ({ name, z: l.finishFloor }));
+  if (floors.some((f) => Math.abs(f.z - summary.floor.z) < 0.05)) {
+    const next = floors.filter((f) => f.z > summary.floor.z + 1).sort((a, b) => a.z - b.z)[0];
+    if (next) out.push(next.name === "roof" ? `the roof (${fmt(next.z)} m)` : `the ${next.name} floor (${fmt(next.z)} m)`);
+  }
+  // "floor-to-ceiling glass" says how tall a wall is, not that there is a ceiling (Terrarium E, the east glass wall).
+  const ceiling = (t: string) => /\bceiling/i.test(t.replace(/floor[- ]to[- ]ceiling/gi, ""));
+  const overlaps = (b: Bounds) => b.min[0] < box.max[0] && b.max[0] > box.min[0] && b.min[1] < box.max[1] && b.max[1] > box.min[1];
+  const ceilings = summary.items
+    .filter((it) => it.visible && overlaps(it.bounds) && (ceiling(it.name) || it.contents.some(ceiling)))
+    .map((it) => it.ref);
+  if (toward && !ceilings.includes(toward.ref) && toward.contents.some(ceiling)) ceilings.push(toward.ref);
+  if (ceilings.length) out.push(`the ceiling${ceilings.length > 1 ? "s" : ""} in ${ceilings.join(", ")}`);
+  return out;
+}
+
 /** Does the flat line from p to q cross the box's footprint? (slab test; touching an edge counts) */
 export function segmentHitsBox(p: [number, number], q: [number, number], b: Bounds): boolean {
   let t0 = 0;
@@ -398,6 +422,13 @@ function sightBlockers(
 }
 
 const SCENE_INSET = 0.6; // the camera stands this far in from the side of the room (clear of a wall)
+/**
+ * A target at least this big both ways is an area (a room inside the room group, a lounge), not an object.
+ * From a side of the room, the camera then lines up with the area instead of the room's middle.
+ * (Windows, 2026-11-13: T133 holds two rooms with a corridor between; "from the north side, toward the MEDITATION
+ * ROOM" stood at the middle of the whole box, in the corridor, looking at the outside of a wall.)
+ */
+const SCENE_AREA = 4;
 const COMPASS: Record<string, [number, number]> = {
   north: [0, 1], south: [0, -1], east: [1, 0], west: [-1, 0],
   northeast: [1, 1], northwest: [-1, 1], southeast: [1, -1], southwest: [-1, -1],
@@ -434,6 +465,13 @@ export function sceneCamera(
     const distance = (Math.max(diag / 2, 1) / Math.tan(((fov / 2) * Math.PI) / 180)) * 1.15;
     const d = [1, -1, 0.8];
     const len = Math.hypot(d[0]!, d[1]!, d[2]!);
+    const cover = coverOver(box, toward, summary);
+    if (cover.length) {
+      warnings.push(
+        `from above, the camera is outside the building and ${cover.join(" and ")} ${cover.length > 1 ? "are" : "is"} over ${toward ? toward.ref : "the room"}, ` +
+          "so the scene shows the roof, not the room (levels and names only: look at the scene); for the inside, use an eye-level view",
+      );
+    }
     return {
       eye: r3(c.map((v, i) => v + (d[i]! / len) * distance)),
       target: r3(c),
@@ -449,11 +487,21 @@ export function sceneCamera(
   let where: string;
   const compass = COMPASS[step.from];
   if (compass) {
+    // The side itself always comes from the room's box (that is what the brief names). Only the other direction - where
+    // along that side - follows a big target, and stays inside both the target and the room, so the camera never
+    // ends up inside a big object (Terrarium C is 4.9 x 4.9 m: a glass column, not a place to stand). Corners: unchanged.
+    const area = toward && !(compass[0] && compass[1]) && Math.min(toward.size[0], toward.size[1]) >= SCENE_AREA ? toward : undefined;
+    const along = (i: number) => {
+      if (!area) return mid(room, i);
+      const lo = Math.max(room.min[i]!, area.bounds.min[i]!) + SCENE_INSET;
+      const hi = Math.min(room.max[i]!, area.bounds.max[i]!) - SCENE_INSET;
+      return lo <= hi ? Math.min(Math.max(mid(area.bounds, i), lo), hi) : mid(room, i);
+    };
     eye = [
-      compass[0] > 0 ? room.max[0] - SCENE_INSET : compass[0] < 0 ? room.min[0] + SCENE_INSET : mid(room, 0),
-      compass[1] > 0 ? room.max[1] - SCENE_INSET : compass[1] < 0 ? room.min[1] + SCENE_INSET : mid(room, 1),
+      compass[0] > 0 ? room.max[0] - SCENE_INSET : compass[0] < 0 ? room.min[0] + SCENE_INSET : along(0),
+      compass[1] > 0 ? room.max[1] - SCENE_INSET : compass[1] < 0 ? room.min[1] + SCENE_INSET : along(1),
     ];
-    where = `eye level (${fmt(step.eyeHeight)} m) from the ${step.from} ${compass[0] && compass[1] ? "corner" : "side"} of the room`;
+    where = `eye level (${fmt(step.eyeHeight)} m) from the ${step.from} ${compass[0] && compass[1] ? "corner" : "side"} of the room${area ? `, in line with ${area.ref}` : ""}`;
   } else {
     const from = refs.get(step.from);
     if (!from) {
