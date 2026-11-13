@@ -253,7 +253,9 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
         const hidden = [...new Set([...summary.tags.filter((tg) => !tg.visible).map((tg) => tg.name), ...hiddenTags])].filter((t) => !/^zz_REPLACED/i.test(t));
         const warnings = [...cam.warnings];
         if (step.from !== "above") {
-          const inside = (b: Bounds) => standsInsideBox(cam.eye, b);
+          // Standing inside the group that holds what the view looks at is normal (in 1F MEDITATION + BREATHING the
+          // room itself is one group), so only another box is worth a word.
+          const inside = (b: Bounds) => standsInsideBox(cam.eye, b) && !boxHoldsPoint(cam.target, b);
           for (const it of summary.items) if (it.visible && inside(it.bounds)) warnings.push(`the camera stands inside the box of ${it.ref} "${short(it.name)}" (boxes only: look at the scene)`);
           for (const [id, b] of built) {
             if (inside({ min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] })) warnings.push(`the camera stands inside ${id} "${b.name}" from this plan`);
@@ -267,11 +269,12 @@ export function resolveDraft(draft: Draft, summary: RoomSummary, opts: ResolveOp
             const clear = Object.keys(COMPASS).filter((side) => {
               const other = sceneCamera({ ...step, from: side }, summary, refs, []);
               if (!other) return false;
-              // A side is no use if the camera would stand inside something at eye height. sightBlockers ignores a box
-              // the camera stands in (a whole-area group, like the lounge furniture), so without this an enclosure reads
-              // as clear. (Windows, 2026-11-13: "east" was offered with the camera 0.6 m inside R7 "Corner lounge D".)
-              if (summary.items.some((it) => it.visible && standsInsideBox(other.eye, it.bounds))) return false;
-              if ([...built.values()].some((b) => standsInsideBox(other.eye, { min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] }))) return false;
+              // A side is no use if the camera would stand inside something that does not also hold what the view looks
+              // at - a different enclosure. sightBlockers ignores a box the camera stands in, so without this such a
+              // side reads as clear. (Windows, 2026-11-13: "east" was offered with the camera 0.6 m inside R7 "Corner
+              // lounge D", which is not where Terrarium A is.) Standing inside the group that holds the subject is
+              // normal and stays allowed: in 1F MEDITATION + BREATHING the room itself is one group.
+              if (!insideOnlyWithTarget(other.eye, other.target, summary, built)) return false;
               return sightBlockers(other.eye, other.target, { ...step, from: side }, summary, built).length === 0;
             });
             warnings.push(
@@ -344,9 +347,33 @@ export function segmentHitsBox(p: [number, number], q: [number, number], b: Boun
   return true;
 }
 
+/** Is this point inside the box's footprint? (Plan only: height is not part of it.) */
+function boxHoldsPoint(p: [number, number, number], b: Bounds): boolean {
+  return p[0] > b.min[0]! && p[0] < b.max[0]! && p[1] > b.min[1]! && p[1] < b.max[1]!;
+}
+
 /** Is the camera standing inside this box (at eye height)? Boxes only, so it is a warning, not an error. */
 function standsInsideBox(eye: [number, number, number], b: Bounds): boolean {
   return eye[0] > b.min[0]! && eye[0] < b.max[0]! && eye[1] > b.min[1]! && eye[1] < b.max[1]! && eye[2] > b.min[2]! && eye[2] < b.max[2]!;
+}
+
+/**
+ * Does the camera stand inside nothing, or only inside boxes that also hold what the view looks at?
+ * Standing in the group that holds the subject (a whole room, a lounge spread) is normal; standing in another
+ * enclosure is not, and sightBlockers cannot see it because it ignores a box the camera stands in.
+ */
+function insideOnlyWithTarget(
+  eye: [number, number, number],
+  target: [number, number, number],
+  summary: RoomSummary,
+  built: Map<string, Built>,
+): boolean {
+  for (const it of summary.items) if (it.visible && standsInsideBox(eye, it.bounds) && !boxHoldsPoint(target, it.bounds)) return false;
+  for (const [, b] of built) {
+    const box = { min: [b.rect.x0, b.rect.y0, b.z0], max: [b.rect.x1, b.rect.y1, b.z1] } as Bounds;
+    if (standsInsideBox(eye, box) && !boxHoldsPoint(target, box)) return false;
+  }
+  return true;
 }
 
 /** Items (and new blocks) standing between the camera and what it looks at, at eye height. */
