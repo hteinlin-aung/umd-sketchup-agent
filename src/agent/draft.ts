@@ -9,7 +9,9 @@ import { z } from "zod";
  * Small models are bad at arithmetic; code is not.
  */
 
-export const Ref = z.string().regex(/^R\d{1,3}$/, 'an item ref from the summary, like "R1"');
+// No example ref in the message: told 'like "R1"', qwen3:8b wrote "R1" - the floor finish - instead of the wall the
+// brief named (Windows, 2026-11-14, brief 7).
+export const Ref = z.string().regex(/^R\d{1,3}$/, "the ref of an item in the room summary (the R-number written before its name), not its name");
 export const StepId = z.string().regex(/^S\d{1,3}$/, 'a step id like "S1"');
 const Metres = (min: number, max: number) => z.number().min(min).max(max);
 const Label = z.string().trim().min(1).max(80);

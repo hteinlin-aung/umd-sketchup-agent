@@ -304,6 +304,41 @@ export function tidyScenes(json: unknown): unknown {
   return { ...obj, steps };
 }
 
+/**
+ * An item NAME where a ref belongs: use the ref when the name points at exactly one item. (Windows, 2026-11-14,
+ * brief 7: on 2F the names look like identifiers - "WALL_LimePlaster_North" - and qwen3:8b wrote the name as the
+ * anchor; everything else in the answer was right.) The code can work this out, so it does, instead of a hint.
+ * A name that fits several items is left alone and the reply lists them.
+ */
+export function namesToRefs(json: unknown, summary: RoomSummary, notes: string[]): unknown {
+  const obj = json as { steps?: unknown } | null;
+  if (!obj || typeof obj !== "object" || !Array.isArray(obj.steps)) return json;
+  const lookup = (value: unknown): unknown => {
+    if (typeof value !== "string" || /^r\d{1,3}$/i.test(value.trim())) return value;
+    const said = value.trim().replace(/^`|`$/g, "").toLowerCase();
+    if (said.length < 4) return value;
+    const exact = summary.items.filter((it) => it.name.toLowerCase() === said);
+    const found = exact.length ? exact : summary.items.filter((it) => it.name.toLowerCase().startsWith(said));
+    if (found.length === 1) return found[0]!.ref;
+    if (found.length > 1) notes.push(`"${value}" fits ${found.map((it) => `${it.ref} "${short(it.name)}"`).join(", ")}: use one of those refs`);
+    else notes.push(`"${value}" is not the name of an item in the room summary: use the R-number written before the item you mean`);
+    return value;
+  };
+  const steps = obj.steps.map((raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const st = { ...(raw as Record<string, unknown>) };
+    if (st.placement && typeof st.placement === "object") {
+      const p = { ...(st.placement as Record<string, unknown>) };
+      if ("anchor" in p) p.anchor = lookup(p.anchor);
+      st.placement = p;
+    }
+    if (st.op === "replace") st.target = lookup(st.target);
+    if (st.op === "scene" && typeof st.toward === "string") st.toward = lookup(st.toward);
+    return st;
+  });
+  return { ...obj, steps };
+}
+
 /** Checks one answer. Returns the problems in plain words (empty = accepted). */
 export function checkAnswer(
   text: string,
@@ -320,9 +355,10 @@ export function checkAnswer(
   } catch {
     return { answer: null, problems: ["the answer is not valid JSON"] };
   }
-  const parsed = ChangeAnswer.safeParse(tidyScenes(json));
+  const nameNotes: string[] = [];
+  const parsed = ChangeAnswer.safeParse(namesToRefs(tidyScenes(json), summary, nameNotes));
   if (!parsed.success) {
-    return { answer: null, problems: parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`) };
+    return { answer: null, problems: [...nameNotes, ...parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`)] };
   }
   const answer = renumber(parsed.data, firstId);
   const problems: string[] = [];

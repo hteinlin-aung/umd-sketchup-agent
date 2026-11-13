@@ -591,3 +591,45 @@ describe("planBrief: when no change can be planned at all", () => {
     expect(answers[0]!.problems!.join()).toMatch(/R40 is not in the room summary/);
   });
 });
+
+// Windows, 2026-11-14 (brief 7, PowerShell run 013138): qwen3:8b wrote the wall's NAME as the anchor; told 'an item
+// ref, like "R1"', it wrote "R1" - the floor finish - and every change failed. The real answers, replayed.
+describe("an item name where a ref belongs (2F names look like identifiers)", () => {
+  const item = (ref: string, name: string, min: [number, number, number], max: [number, number, number]) => ({
+    ref, name, type: "Group" as const, tag: "2F", visible: true, entityId: 1, persistentId: 1, path: [], bounds: { min, max },
+    size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]] as [number, number, number], contents: [], childCount: 0, categories: [], warnings: [], canChange: true,
+  });
+  const pool = {
+    room: { name: "NEW_2F_Pool_Area_FitOut_v02 (STILL water concept)", entityId: 1, persistentId: 1, path: [], bounds: { min: [55.543, 67.493, 4.279], max: [64.65, 79.567, 9.179] }, size: [9.107, 12.074, 4.9] },
+    floor: { z: 5.479, source: "2F finish floor (confirmed levels)" },
+    modelPath: "E:/dev/UMD_DEV_2F.skp",
+    items: [
+      item("R1", "FINISH_FloorPoolside_TravertineHoned_R11", [55.543, 67.677, 5.482], [64.65, 79.567, 5.482]),
+      item("R20", "WALL_LimePlaster_North", [55.6, 79.552, 5.479], [64.6, 79.567, 9.179]),
+      item("R21", "WALL_WoodLookPanels_West (1.2 m modules)", [55.543, 67.9, 5.479], [55.568, 76.392, 8.879]),
+    ],
+    tags: [], materials: { design: [], otherCount: 0 }, notes: [],
+  } as unknown as Parameters<typeof checkAnswer>[4];
+  const brief = parseBrief(readFileSync("instructions/2F_pool_build.md", "utf8"));
+  const change1 = brief.changes.find((c) => c.line === 1)!;
+  const bench = (anchor: string) =>
+    JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Robe bench - light oak", placement: { kind: "beside", anchor, side: "south", gap: 0.1, eastWest: 1.6, northSouth: 0.45, shift: -3.2 }, height: 0.45, tag: "2F Pool - Furniture (AGENT)", material: { name: "UMD Light Oak", rgb: [196, 164, 120] } }], reason: "" });
+  const opts = { runId: "t", briefName: "2F_pool_build" };
+
+  it("the model's first answer (the wall's name) is accepted, anchored on the wall's ref", () => {
+    const out = checkAnswer(bench("WALL_LimePlaster_North"), change1, [], 1, pool, opts, brief);
+    expect(out.problems).toEqual([]);
+    expect((out.answer!.steps[0] as { placement: { anchor: string } }).placement.anchor).toBe("R20");
+  });
+
+  it("a name that fits several items is not guessed: the reply lists them, and never says 'like \"R1\"'", () => {
+    const out = checkAnswer(bench("WALL_"), change1, [], 1, pool, opts, brief);
+    const p = out.problems.join(" | ");
+    expect(p).toMatch(/"WALL_" fits R20 "WALL_LimePlaster_North", R21 "WALL_WoodLookPanels_West/);
+    expect(p).not.toMatch(/like "R1"/);
+  });
+
+  it("the model's second answer (R1, the floor finish) is still refused", () => {
+    expect(checkAnswer(bench("R1"), change1, [], 1, pool, opts, brief).problems.join()).toMatch(/S1 ends up outside the room/);
+  });
+});
