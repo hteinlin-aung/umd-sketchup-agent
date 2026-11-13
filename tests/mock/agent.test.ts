@@ -646,6 +646,17 @@ describe("an item name where a ref belongs (2F names look like identifiers)", ()
     expect(checkAnswer(shelf(1.5), change2, done, 2, pool, opts, brief).problems).toEqual([]);
   });
 
+  // Run 014643: change 4 (Materials) answered "steps" with no steps, reason "No new items to add": refused for the label.
+  it("no steps for a change that asks nothing to be done counts as a rule; for 'Check it' it is still refused", () => {
+    const empty = JSON.stringify({ type: "steps", steps: [], reason: "No new items to add" });
+    const materials = brief.changes.find((c) => c.line === 4)!;
+    const r = checkAnswer(empty, materials, [], 3, pool, opts, brief);
+    expect(r.problems).toEqual([]);
+    expect(r.answer!.type).toBe("rule");
+    const checkIt = brief.changes.find((c) => c.line === 5)!;
+    expect(checkAnswer(empty, checkIt, [], 3, pool, opts, brief).problems.join()).toMatch(/asks for a screenshot/);
+  });
+
   it("the model's second answer (R1, the floor finish) is still refused", () => {
     expect(checkAnswer(bench("R1"), change1, [], 1, pool, opts, brief).problems.join()).toMatch(/S1 ends up outside the room/);
   });

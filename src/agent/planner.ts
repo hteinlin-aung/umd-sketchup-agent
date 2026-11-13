@@ -339,6 +339,14 @@ export function namesToRefs(json: unknown, summary: RoomSummary, notes: string[]
   return { ...obj, steps };
 }
 
+/** A change gives sizes in metres, or asks to add or build: something new is wanted ("A built-in bench ... 6.0 m long"). */
+function asksForSomethingNew(t: string): boolean {
+  return /\d(\.\d+)?\s*m\b/.test(t) || /\b(add|new|build|top|place)\b/i.test(t);
+}
+
+/** Words that mean a change asks for something to be DONE (not only a rule for the other changes). */
+const ASKS_FOR_ACTION = /\b(add|build|hide|replace|take out|save|screenshot|scene)\b/i;
+
 /** Checks one answer. Returns the problems in plain words (empty = accepted). */
 export function checkAnswer(
   text: string,
@@ -360,15 +368,21 @@ export function checkAnswer(
   if (!parsed.success) {
     return { answer: null, problems: [...nameNotes, ...parsed.error.issues.slice(0, 6).map((i) => `${i.path.join(".") || "(top)"}: ${i.message}`)] };
   }
-  const answer = renumber(parsed.data, firstId);
+  let answer = renumber(parsed.data, firstId);
   const problems: string[] = [];
+  // "steps" with no steps, for a change that asks nothing to be done ("Materials. Light oak = RGB ... Use the material
+  // name ..."), means what a rule means: nothing to do here. (Windows, 2026-11-14, brief 7 run 014643: qwen3:8b
+  // answered change 4 so, with the reason "No new items to add", and it was refused for the label alone.)
+  if (answer.type === "steps" && answer.steps.length === 0 && !ASKS_FOR_ACTION.test(change.text) && !asksForSomethingNew(change.text)) {
+    answer = { ...answer, type: "rule" };
+  }
 
   if (answer.type === "steps" && answer.steps.length === 0) problems.push('type is "steps" but there are no steps');
   if (answer.type !== "steps" && answer.steps.length > 0) problems.push(`type is "${answer.type}" but steps were given; use "steps"`);
   if (answer.type === "notPossible" && VAGUE_REASON.test(answer.reason)) {
     problems.push("positions, coordinates, alignment and the camera are calculated by the program, so they never make a change impossible; use build/screenshot steps");
   }
-  if (answer.type === "rule" && /\b(add|build|hide|replace|take out|save|screenshot|scene)\b/i.test(change.text) && !/\b(put|use|tag|material)\b.{0,40}\b(everything|all|new)\b/i.test(change.text)) {
+  if (answer.type === "rule" && ASKS_FOR_ACTION.test(change.text) && !/\b(put|use|tag|material)\b.{0,40}\b(everything|all|new)\b/i.test(change.text)) {
     problems.push(`change ${change.line} asks for something to be done, so it is not only a rule; give its steps`);
   }
 
@@ -504,8 +518,7 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
   if (has("place") && !wantsComponent && !/\bplace\b/i.test(t)) {
     problems.push(`change ${change.line} doesn't ask for a component; don't place one`);
   }
-  const sizes = /\d(\.\d+)?\s*m\b/.test(t);
-  if ((has("build") || has("place")) && !sizes && !/\b(add|new|build|top|place)\b/i.test(t)) {
+  if ((has("build") || has("place")) && !asksForSomethingNew(t)) {
     problems.push(`change ${change.line} doesn't ask to add anything new, so it must not build or place anything`);
   }
   const replaced = new Set([...done, ...answer.steps].filter((st) => st.op === "replace").map((st) => (st as { target: string }).target));
