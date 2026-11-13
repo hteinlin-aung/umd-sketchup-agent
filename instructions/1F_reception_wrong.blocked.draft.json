@@ -1,0 +1,15 @@
+{
+  "steps": [
+    { "op": "build", "line": 1, "id": "S1", "name": "Sculpture plinth - travertine",
+      "placement": { "kind": "beside", "anchor": "R1", "side": "east", "gap": 3.9, "eastWest": 0.5, "northSouth": 6.0, "shift": 0 },
+      "height": 0.45, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Travertine", "rgb": [222, 211, 190] } },
+    { "op": "build", "line": 2, "id": "S2", "name": "Window bench - light oak",
+      "placement": { "kind": "beside", "anchor": "R12", "side": "west", "gap": 1.0, "eastWest": 0.45, "northSouth": 2.0, "shift": -3.0 },
+      "height": 0.45, "base": 0, "tag": "1F Reception - Furniture (AGENT)",
+      "material": { "name": "UMD Light Oak", "rgb": [196, 164, 120] } },
+    { "op": "screenshot", "line": 5 },
+    { "op": "save", "line": 5, "fileName": "UMD_DEV_1F_reception_wrong.skp" }
+  ],
+  "notDone": []
+}

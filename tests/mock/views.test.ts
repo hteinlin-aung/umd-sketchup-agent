@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveDraft } from "../../src/agent/resolve";
 import { groupPieces, viewOptions } from "../../src/agent/views";
 import type { BridgeClient } from "../../src/bridge/client";
-import { checkViews, viewProblem } from "../../src/geometry/views";
+import { checkViews, floorUnderRoom, viewProblem } from "../../src/geometry/views";
 import type { Bounds } from "../../src/protocol/tools";
 import { t133 } from "../helpers/t133";
 
@@ -82,12 +82,13 @@ const rays = (answer: (dir: string, from: number[]) => { z?: number; distance?: 
     },
   }) as unknown as BridgeClient;
 
+const plan5 = () => {
+  const { summary } = t133();
+  const bench = { op: "build" as const, line: 1, id: "S1", name: "bench", placement: { kind: "beside" as const, anchor: "R2", side: "north" as const, gap: 0.14, eastWest: 2, northSouth: 0.35, shift: 5.2 }, height: 0.45, base: 0, tag: "T" };
+  return resolveDraft({ steps: [bench, { op: "screenshot", line: 5 }, { op: "save", line: 5, fileName: "x.skp" }], notDone: [] }, summary, { runId: "t", briefName: "b5" });
+};
 describe("checkViews: the real model picks the standpoint", () => {
-  const plan5 = () => {
-    const { summary } = t133();
-    const bench = { op: "build" as const, line: 1, id: "S1", name: "bench", placement: { kind: "beside" as const, anchor: "R2", side: "north" as const, gap: 0.14, eastWest: 2, northSouth: 0.35, shift: 5.2 }, height: 0.45, base: 0, tag: "T" };
-    return resolveDraft({ steps: [bench, { op: "screenshot", line: 5 }, { op: "save", line: 5, fileName: "x.skp" }], notDone: [] }, summary, { runId: "t", briefName: "b5" });
-  };
+
 
   // Windows, 2026-11-13: south of the bench is INSIDE the raised breathing room (floor 2.02), behind its north wall.
   it("the summary already moves a standpoint inside another room to the back", () => {
@@ -121,5 +122,24 @@ describe("checkViews: the real model picks the standpoint", () => {
     const shot = plan.actions.find((a) => a.tool === "captureView")!;
     expect(shot.warnings.join()).toMatch(/no side gives a clear eye-level view of S1/);
     expect(lines[0]).toMatch(/VIEW S1: no clear side/);
+  });
+});
+
+// Windows, 2026-11-13: UMD_DEV_1F_reception.skp holds the room group only - no floor, walls or columns. The checks
+// must say they could not look, not quietly pass.
+describe("a model with no building around the room", () => {
+  it("floorUnderRoom: true when a probe finds the floor level, false when nothing is there", async () => {
+    const { summary } = t133();
+    expect(await floorUnderRoom(rays(() => ({ z: 1.489 })), summary)).toBe(true);
+    expect(await floorUnderRoom(rays(() => null), summary)).toBe(false);
+    expect(await floorUnderRoom(rays(() => ({ z: 2.02 })), summary)).toBe(false); // only the raised room floors
+  });
+
+  it("with no floor, standpoints are checked only for things in between, and the report says so", async () => {
+    const plan = plan5();
+    const lines = await checkViews(rays((dir) => (dir === "down" ? null : null)), plan, false);
+    expect(lines[0]).toMatch(/no floor under the room, so standpoints are checked only for things in between/);
+    expect(lines[1]).toMatch(/VIEW S1: from the north/);
+    expect(await viewProblem(rays(() => null), plan.actions.find((a) => a.tool === "captureView")!.viewOptions![0]!, false)).toBeNull();
   });
 });

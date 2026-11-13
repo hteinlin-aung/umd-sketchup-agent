@@ -10,6 +10,7 @@ import { parseBrief } from "../../src/agent/brief";
 import { briefRules } from "../../src/agent/planner";
 import { checkAndRepair, faceIsCut, findCollisions, isShell, verifyRun } from "../../src/geometry/checks";
 import { summarizeRoom } from "../../src/summary/roomSummary";
+import { runOutcome } from "../../src/agent/outcome";
 
 // MOCK: Week 3 geometry checks on the fake reception room (real positions, simplified parts).
 
@@ -225,5 +226,84 @@ describe("read-back after the run (verifyRun)", () => {
     const v = await verifyRun(client, plan, summary, summary, { S1: 999999 });
     expect(v.ok).toBe(false);
     expect(v.lines[0]).toBe("MISSING S1: not found after the run");
+  });
+});
+
+// Week 3 DONE-WHEN (test brief 6, instructions/1F_reception_wrong.md): one deliberately wrong change, one good one,
+// and ONE clear outcome. The real reception stands on a 5 m grid of D500 columns that are not in the room summary;
+// these are their real positions (Windows, 2026-11-13).
+describe("test brief 6: the Week 3 done-when", () => {
+  const wrong = Draft.parse(JSON.parse(readFileSync("instructions/1F_reception_wrong.draft.json", "utf8")));
+  const blocked = Draft.parse(JSON.parse(readFileSync("instructions/1F_reception_wrong.blocked.draft.json", "utf8")));
+  const withColumns = async () => {
+    const s = await setup();
+    column(s.sketchup, s.room.entityId, 93.89, 99.49, 94.39, 99.99, "UMD Column D500 1F colonnade");
+    column(s.sketchup, s.room.entityId, 93.89, 104.49, 94.39, 104.99, "UMD Column D500 1F colonnade");
+    return s;
+  };
+
+  it("the plinth on the column is caught and slid 0.87 m north; the window bench is untouched; SUCCESS after running", async () => {
+    const { client, summary, resolve } = await withColumns();
+    const before = resolve(wrong).actions.find((a) => a.builds === "S2")!.box;
+    const checked = await checkAndRepair(client, wrong, summary, resolve);
+    expect(checked.plan.errors).toEqual([]);
+    expect(checked.repairs.map((r) => [r.step, r.moved, r.direction])).toEqual([["S1", 0.87, "north"]]);
+    expect(checked.repairs[0]!.because).toMatch(/UMD Column D500 1F colonnade/);
+    expect(checked.plan.actions.find((a) => a.builds === "S2")!.box).toEqual(before);
+    const run = await executePlan(client, checked.plan);
+    const o = runOutcome({ planErrors: [], repairsExhausted: checked.exhausted, moved: ["S1 0.87 m north (brief line 1)"], modelGaveUp: [], dry: false, declined: false, run });
+    expect(o.outcome).toBe("SUCCESS");
+    expect(o.why.join()).toMatch(/moved automatically \(you approved it\): S1 0\.87 m north/);
+  });
+
+  it("6 m long, through two columns: no slide of 2 m or less clears it, so it is reported and NOTHING runs - BLOCKED", async () => {
+    const { client, summary, resolve } = await withColumns();
+    const checked = await checkAndRepair(client, blocked, summary, resolve);
+    expect(checked.repairs).toEqual([]);
+    expect(checked.unresolved.map((c) => c.step)).toEqual(["S1", "S1"]);
+    expect(checked.exhausted).toBe(false);
+    expect(checked.plan.errors.join()).toMatch(/S1 collides with "UMD Column D500 1F colonnade".*change the brief/);
+    const o = runOutcome({ planErrors: checked.plan.errors, repairsExhausted: checked.exhausted, moved: [], modelGaveUp: [], dry: false, declined: false, run: null });
+    expect(o.outcome).toBe("BLOCKED");
+    await expect(executePlan(client, checked.plan)).rejects.toThrow(/errors/);
+  });
+
+  it("a block that bounces between two obstacles uses all 3 tries and still collides: MAX_ATTEMPTS_REACHED", async () => {
+    const { client, summary, sketchup, room, resolve } = await setup();
+    const one: Draft = { steps: [wrong.steps[0]!, { op: "save", line: 5, fileName: "x.skp" }], notDone: [] };
+    const box = resolve(one).actions.find((a) => a.builds === "S1")!.box!;
+    const [x0, x1, y0, y1] = [box.min[0]!, box.max[0]!, box.min[1]!, box.max[1]!];
+    column(sketchup, room.entityId, x0, y1 - 0.1, x1, y1, "bar A"); // overlaps its north end by 0.1: slides 0.15 south ...
+    column(sketchup, room.entityId, x0, y0 - 0.15, x1, y0 - 0.05, "bar B"); // ... onto bar B: slides 0.15 north, onto bar A ...
+    const checked = await checkAndRepair(client, one, summary, resolve);
+    expect(checked.repairs).toHaveLength(3);
+    expect(checked.exhausted).toBe(true);
+    const o = runOutcome({ planErrors: checked.plan.errors, repairsExhausted: checked.exhausted, moved: [], modelGaveUp: [], dry: false, declined: false, run: null });
+    expect(o.outcome).toBe("MAX_ATTEMPTS_REACHED");
+    expect(o.why[0]).toMatch(/all 3 of its tries/);
+  });
+});
+
+describe("runOutcome: one clear outcome for every way a run can end", () => {
+  it("says what was NOT checked, even on SUCCESS", () => {
+    const o = runOutcome({ planErrors: [], repairsExhausted: false, moved: [], modelGaveUp: [], notChecked: ["walls and columns (no building in this model)"], dry: false, declined: false, run: { results: [], stoppedAt: null, savedPath: "x.skp", imagePath: null, imagePaths: [], built: {} } });
+    expect(o.why.join()).toMatch(/NOT CHECKED: walls and columns/);
+  });
+  const run = (stoppedAt: number | null) => ({
+    results: [{ n: 1, ok: stoppedAt === null, message: stoppedAt === null ? "ok" : "VERIFY_FAILED: measured size is wrong", durationMs: 1 }],
+    stoppedAt, savedPath: stoppedAt === null ? "E:/x.skp" : null, imagePath: null, imagePaths: [], built: {},
+  });
+  const base = { planErrors: [] as string[], repairsExhausted: false, moved: [] as string[], modelGaveUp: [] as { line: number; reason: string }[], dry: false, declined: false };
+  it.each([
+    ["all ran", { ...base, run: run(null) }, "SUCCESS"],
+    ["plan errors", { ...base, planErrors: ["S1 collides with ..."], run: null }, "BLOCKED"],
+    ["repair gave up", { ...base, planErrors: ["S1 collides with ..."], repairsExhausted: true, run: null }, "MAX_ATTEMPTS_REACHED"],
+    ["you typed n", { ...base, declined: true, run: null }, "BLOCKED"],
+    ["a step failed in SketchUp", { ...base, run: run(1) }, "BLOCKED"],
+    ["the model couldn't plan a change; the rest ran", { ...base, modelGaveUp: [{ line: 2, reason: "S1 ends up outside the room" }], run: run(null) }, "MAX_ATTEMPTS_REACHED"],
+    ["--dry", { ...base, dry: true, run: null }, "NOT RUN"],
+    ["ran, but the model had no building to check against", { ...base, notChecked: ["no floor under the room"], run: run(null) }, "SUCCESS"],
+  ] as const)("%s -> %s", (_n, input, want) => {
+    expect(runOutcome(input as never).outcome).toBe(want);
   });
 });

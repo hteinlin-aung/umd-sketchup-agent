@@ -22,7 +22,8 @@ import { BridgeUnavailableError } from "../bridge/transport";
 import { ConfigError, loadConfig } from "../config";
 import { smokeRunId } from "../smoke/runSmoke";
 import { checkAndRepair, verifyRun } from "../geometry/checks";
-import { checkViews } from "../geometry/views";
+import { checkViews, floorUnderRoom } from "../geometry/views";
+import { runOutcome, type OutcomeInput } from "../agent/outcome";
 import { terminal } from "./terminal";
 import { findRoom, renderSummary, summarizeRoom } from "../summary/roomSummary";
 
@@ -77,6 +78,7 @@ async function main(): Promise<number> {
   const resolve = (d: Draft) => resolveDraft(d, summary, { runId, briefName, catalog });
   let draft: Draft;
   let modelName = "(hand-written draft)";
+  const modelGaveUp: OutcomeInput["modelGaveUp"] = [];
   if (draftFile) {
     draft = Draft.parse(JSON.parse(readFileSync(draftFile, "utf8")));
     console.log(`using the draft in ${draftFile} (no language model)`);
@@ -96,6 +98,7 @@ async function main(): Promise<number> {
     writeFileSync(`${dir}/outcomes.json`, JSON.stringify(out.outcomes, null, 2));
     console.log(`  all changes planned in ${((Date.now() - started) / 1000).toFixed(0)} s`);
     draft = out.draft;
+    for (const o of out.outcomes) if (o.type === "failed") modelGaveUp.push({ line: o.line, reason: o.problems[0] ?? "no usable answer" });
   }
   writeFileSync(`${dir}/draft.json`, JSON.stringify(draft, null, 2));
 
@@ -127,24 +130,39 @@ async function main(): Promise<number> {
   for (const r of checked.repairs) checks.push(`MOVED ${r.step} (brief line ${r.line}) ${r.moved} m ${r.direction}: ${r.because}`);
   for (const c of checked.unresolved) checks.push(`NOT FIXED ${c.step}: collides with "${c.with}" (${c.path.join(" > ")})`);
   if (checked.repairs.length === 0 && checked.unresolved.length === 0) checks.push("no new block cuts into any real part of the model");
+  // A trimmed copy with only the room in it has no building to collide with: say so instead of "nothing hit".
+  const hasFloor = await floorUnderRoom(client, summary);
+  if (!hasFloor) {
+    checks.push(
+      "WARNING: this model has no floor under the room - it looks like a trimmed copy with the room group only - so walls, columns and floors " +
+        "outside the room group could NOT be checked. Use a full 1F dev copy to check against the building.",
+    );
+  }
   // Where each screenshot stands, now that the blocks are where they will be (after any slide).
-  if (!plan.errors.length) checks.push(...(await checkViews(client, plan)));
+  if (!plan.errors.length) checks.push(...(await checkViews(client, plan, hasFloor)));
   if (checked.repairs.length) writeFileSync(`${dir}/draft.repaired.json`, JSON.stringify(checked.draft, null, 2));
   writeFileSync(`${dir}/plan.json`, JSON.stringify(plan, null, 2));
   console.log(`\n${renderPlan(plan)}\n\nGEOMETRY CHECKS:\n${checks.map((c) => `  ${c}`).join("\n")}\n`);
 
-  const report = (run: Parameters<typeof renderReport>[0]["run"]) =>
-    writeFileSync(`${dir}/report.md`, renderReport({ brief: brief.text, summaryText, plan, run, model: modelName, checks }));
+  // Week 3 "done when": every way out of here writes ONE clear outcome, first thing in report.md.
+  const moved = checked.repairs.map((r) => `${r.step} ${r.moved} m ${r.direction} (brief line ${r.line})`);
+  const finish = (run: Parameters<typeof renderReport>[0]["run"], how: { declined?: boolean } = {}) => {
+    const notChecked = hasFloor ? [] : ["this model has no building around the room (no floor under it), so walls and columns were not checked"];
+    const outcome = runOutcome({ planErrors: plan.errors, repairsExhausted: checked.exhausted, moved, modelGaveUp, notChecked, dry, declined: !!how.declined, run });
+    writeFileSync(`${dir}/report.md`, renderReport({ brief: brief.text, summaryText, plan, run, model: modelName, checks, outcome }));
+    console.log(`\nOUTCOME: ${outcome.outcome}\n${outcome.why.map((w) => `  - ${w}`).join("\n")}`);
+    return outcome.outcome;
+  };
 
   if (plan.errors.length) {
     rl.close();
-    report(null);
+    finish(null);
     console.log(`The plan has errors, so nothing ran. Everything is in ${dir}/`);
     return 1;
   }
   if (dry) {
     rl.close();
-    report(null);
+    finish(null);
     console.log(`Plan only (--dry). Everything is in ${dir}/`);
     return 0;
   }
@@ -155,7 +173,7 @@ async function main(): Promise<number> {
   const answer = await rl.ask(`Run these ${plan.actions.length} actions on ${ping.data.modelTitle}?${moves} Type y to run, anything else to stop: `);
   rl.close();
   if (answer.trim().toLowerCase() !== "y") {
-    report(null);
+    finish(null, { declined: true });
     console.log(`Stopped, nothing changed. The plan is in ${dir}/`);
     return 0;
   }
@@ -173,13 +191,13 @@ async function main(): Promise<number> {
       return v.ok;
     },
   );
-  report(run);
+  const outcome = finish(run);
   console.log(
     run.stoppedAt === null
       ? `\nDone. Saved copy: ${run.savedPath}\nReport: ${dir}/report.md`
       : `\nStopped at action ${run.stoppedAt}. The open model has the earlier changes; close it WITHOUT saving.\nReport: ${dir}/report.md`,
   );
-  return run.stoppedAt === null ? 0 : 1;
+  return outcome === "SUCCESS" ? 0 : 1;
 }
 
 main()

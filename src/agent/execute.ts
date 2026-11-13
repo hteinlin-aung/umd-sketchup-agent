@@ -91,9 +91,19 @@ export async function executePlan(
 }
 
 /** The report saved next to the plan: what was asked, what was approved, what happened. */
-export function renderReport(opts: { brief: string; summaryText: string; plan: Plan; run: RunResult | null; model: string; checks?: string[] }): string {
+export function renderReport(opts: {
+  brief: string;
+  summaryText: string;
+  plan: Plan;
+  run: RunResult | null;
+  model: string;
+  checks?: string[];
+  outcome?: { outcome: string; why: string[] };
+}): string {
   const { plan, run } = opts;
-  const out = [`# Agent run ${plan.runId}`, "", `- model file: ${plan.modelPath}`, `- language model: ${opts.model}`];
+  const out = [`# Agent run ${plan.runId}`, ""];
+  if (opts.outcome) out.push(`## Outcome: **${opts.outcome.outcome}**`, "", ...opts.outcome.why.map((w) => `- ${w}`), "");
+  out.push(`- model file: ${plan.modelPath}`, `- language model: ${opts.model}`);
   if (!run) out.push("- result: **not run** (plan only)");
   else if (run.stoppedAt === null) out.push(`- result: **all ${run.results.length} actions ran**`);
   else out.push(`- result: **stopped at action ${run.stoppedAt}**; the actions before it are in the open model (not saved)`);

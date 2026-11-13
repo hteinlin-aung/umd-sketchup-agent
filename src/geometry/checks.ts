@@ -20,7 +20,14 @@ type Found = DataOf<"findEntities">["matches"][number];
 
 export type Collision = { step: string; with: string; path: string[]; bounds: Bounds; overlap: [number, number, number] };
 export type Repair = { step: string; line: number; moved: number; direction: string; because: string };
-export type CheckResult = { draft: Draft; plan: Plan; repairs: Repair[]; unresolved: Collision[] };
+export type CheckResult = {
+  draft: Draft;
+  plan: Plan;
+  repairs: Repair[];
+  unresolved: Collision[];
+  /** The repair moved something on every one of its tries and a block still cuts into the model: it gave up. */
+  exhausted: boolean;
+};
 
 const TOUCH = 0.01; // boxes that only touch (or overlap by under 1 cm) don't count
 // A leaf this much bigger than the new block, and this big in itself, is a SHELL, not a part: raw geometry whose
@@ -156,10 +163,11 @@ async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSumma
   const repairs: Repair[] = [];
   const movedSoFar = new Map<number, number>(); // brief line -> metres moved so far
 
+  let stuck = false;
   for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
     const plan = resolve(current);
     const collisions = await findCollisions(client, plan, summary);
-    if (collisions.length === 0) return { draft: current, plan: dropBoxOnlyWarnings(plan), repairs, unresolved: [] };
+    if (collisions.length === 0) return { draft: current, plan: dropBoxOnlyWarnings(plan), repairs, unresolved: [], exhausted: false };
 
     let changed = false;
     const steps = current.steps.map((st) => ({ ...st })) as DraftStep[];
@@ -203,7 +211,10 @@ async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSumma
       changed = true;
     }
     current = { ...current, steps };
-    if (!changed) break;
+    if (!changed) {
+      stuck = true; // nothing it may slide (too far, or no wall to slide along): a design problem, not a lack of tries
+      break;
+    }
   }
 
   const plan = resolve(current);
@@ -213,7 +224,7 @@ async function repairLoop(client: BridgeClient, draft: Draft, summary: RoomSumma
       `${c.step} collides with "${c.with}" (${c.path.join(" > ")}), overlap ${c.overlap.join(" x ")} m, and sliding it up to ${MAX_MOVE} m along its wall doesn't clear it: change the brief`,
     );
   }
-  return { draft: current, plan, repairs, unresolved };
+  return { draft: current, plan, repairs, unresolved, exhausted: !stuck && unresolved.length > 0 };
 }
 
 /**

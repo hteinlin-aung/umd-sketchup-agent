@@ -564,3 +564,14 @@ describe("brief 5: a block the brief itself puts outside the room", () => {
     expect(briefPutsItThere("Two kerbs inside the main entrance (the gap in the middle of `EAST GLASS WALL (T132)`)", "east", wall)).toBe(false);
   });
 });
+
+describe("report.md starts with the outcome (Week 3 done-when)", () => {
+  it("puts ONE clear outcome and its reasons above everything else", async () => {
+    const { summary } = await setup();
+    const plan = resolveDraft(BRIEF1, summary, OPTS);
+    const md = renderReport({ brief: "b", summaryText: "s", plan, run: null, model: "m", outcome: { outcome: "BLOCKED", why: ["the plan has problems the code can't fix, so nothing ran"] } });
+    const lines = md.split("\n");
+    expect(lines[2]).toBe("## Outcome: **BLOCKED**");
+    expect(lines[4]).toBe("- the plan has problems the code can't fix, so nothing ran");
+  });
+});
