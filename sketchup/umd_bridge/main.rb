@@ -41,6 +41,7 @@ module UMDBridge
       'saveCopy' => :file,
       'findEntities' => :read,
       'inspectEntity' => :read,
+      'facesInBox' => :read,
       'measure' => :read,
       'createPrism' => :write,
       'setTag' => :write,
@@ -55,7 +56,7 @@ module UMDBridge
   end
 
   def self.version
-    '0.6.1'
+    '0.7.0'
   end
 
   def self.protocol

@@ -91,8 +91,12 @@ class Sketchup::ComponentDefinition
 end
 
 class Sketchup::Face
-  attr_reader :layer, :material
-  def initialize(tag = 'Layer0', material = nil)
+  attr_reader :layer, :material, :fake_bounds
+  attr_accessor :parent
+  def entityID; 0; end
+  def definition; nil; end
+  def initialize(tag = 'Layer0', material = nil, bounds = nil)
+    @fake_bounds = bounds
     @layer = FakeNamed.new(tag)
     @material = material && FakeNamed.new(material)
   end

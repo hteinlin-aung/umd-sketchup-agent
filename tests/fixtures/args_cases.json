@@ -595,6 +595,168 @@
     }
   },
   {
+    "tool": "facesInBox",
+    "valid": true,
+    "args": {
+      "target": {
+        "entityId": 42
+      },
+      "box": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": true,
+    "args": {
+      "target": {
+        "persistentId": 7
+      },
+      "box": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      },
+      "limit": 1
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {}
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {
+      "target": {
+        "entityId": 42
+      }
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {
+      "box": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {
+      "target": {
+        "entityId": 42
+      },
+      "box": {
+        "min": [
+          2,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {
+      "target": {
+        "entityId": 42
+      },
+      "box": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      },
+      "limit": 0
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {
+      "target": {
+        "entityId": 42
+      },
+      "box": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      },
+      "limit": 2001
+    }
+  },
+  {
+    "tool": "facesInBox",
+    "valid": false,
+    "args": {
+      "target": {
+        "entityId": 42
+      },
+      "box": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      },
+      "depth": 2
+    }
+  },
+  {
     "tool": "measure",
     "valid": true,
     "args": {

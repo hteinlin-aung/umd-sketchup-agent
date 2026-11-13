@@ -23,6 +23,12 @@ export type Repair = { step: string; line: number; moved: number; direction: str
 export type CheckResult = { draft: Draft; plan: Plan; repairs: Repair[]; unresolved: Collision[] };
 
 const TOUCH = 0.01; // boxes that only touch (or overlap by under 1 cm) don't count
+// A leaf this much bigger than the new block, and this big in itself, is a SHELL, not a part: raw geometry whose
+// one box covers a whole room ("1F Walls & partitions > Group#276" covers the breathing room, the 1F floor plate
+// covers the building). Its box is mostly empty space, so its faces are checked instead (Windows, 2026-11-13).
+const SHELL_TIMES = 10; // ... bigger than the block's footprint
+const SHELL_AREA = 20; // ... and at least this many square metres itself
+const MAX_FACES = 2_000; // more faces than this in the block's box: say so, never "clear"
 const CLEAR = 0.05; // a repaired block keeps 5 cm from what it hit
 const MAX_TRIES = 3;
 const MAX_MOVE = 2.0; // further than this changes the design: report instead
@@ -34,9 +40,29 @@ const shrink = (b: Bounds, d: number): Bounds => ({
 
 const isPrefix = (a: string[], b: string[]) => a.length < b.length && a.every((n, i) => n === b[i]);
 
+const footprint = (b: Bounds) => (b.max[0]! - b.min[0]!) * (b.max[1]! - b.min[1]!);
+
+/** A leaf whose box is mostly empty space: too big to be a part of the model, so its faces decide. */
+export function isShell(leaf: Bounds, block: Bounds): boolean {
+  const area = footprint(leaf);
+  return area >= SHELL_AREA && area >= footprint(block) * SHELL_TIMES;
+}
+
+/**
+ * Does the block really cut into this face? A face is flat, so on its thin axis the two boxes can never overlap
+ * by 1 cm: there the block must CROSS the face's plane. A block standing on a floor face, or set against a wall
+ * face, only touches it, and that is not a collision.
+ */
+export function faceIsCut(block: Bounds, face: Bounds): boolean {
+  return [0, 1, 2].every((i) => {
+    const thin = face.max[i]! - face.min[i]! < TOUCH;
+    if (thin) return face.min[i]! > block.min[i]! + TOUCH && face.max[i]! < block.max[i]! - TOUCH;
+    return Math.min(block.max[i]!, face.max[i]!) - Math.max(block.min[i]!, face.min[i]!) > TOUCH;
+  });
+}
+
 /** The real parts each new block of the plan would cut into. Read-only. */
 export async function findCollisions(client: BridgeClient, plan: Plan, summary: RoomSummary): Promise<Collision[]> {
-  const room = { persistentId: summary.room.persistentId };
   const hiddenTags = new Set(summary.tags.filter((t) => !t.visible).map((t) => t.name));
   const removed: string[][] = []; // paths of items this plan takes out before the block is built
   const out: Collision[] = [];
@@ -55,7 +81,10 @@ export async function findCollisions(client: BridgeClient, plan: Plan, summary: 
     }
     if (!a.builds || !a.box) continue; // a new block or a placed component
     const box = a.box;
-    const res = await client.call("findEntities", { within: room, touches: shrink(box, TOUCH), maxDepth: 6, limit: 500 });
+    // The whole model, not just the room: in T133 the timber screen, the platforms and the walls that the first
+    // brief-5 plan cut into all live in other groups (Windows, 2026-11-13). Only things near the block are looked
+    // at, and since bridge 0.6.1 a group whose box misses is not opened, so this stays cheap.
+    const res = await client.call("findEntities", { touches: shrink(box, TOUCH), maxDepth: 6, limit: 500 });
     if (!res.ok) throw new Error(`collision check failed: ${res.error.code}: ${res.error.message}`);
 
     const live = res.data.matches.filter(
@@ -69,11 +98,36 @@ export async function findCollisions(client: BridgeClient, plan: Plan, summary: 
     if (res.data.scanLimitHit) throw new Error(`collision check for ${a.builds}: the model was too big to search completely, so it was not checked`);
     const leaves = live.filter((m) => m.childCount === 0 || m.depth >= 6);
     for (const m of leaves) {
+      if (isShell(m.bounds, box)) {
+        out.push(...(await shellCollisions(client, a.builds, m, box, hiddenTags)));
+        continue;
+      }
       const overlap = [0, 1, 2].map((i) => Math.min(box.max[i]!, m.bounds.max[i]!) - Math.max(box.min[i]!, m.bounds.min[i]!)) as [number, number, number];
       if (overlap.every((v) => v > TOUCH)) out.push({ step: a.builds, with: label(m), path: m.path, bounds: m.bounds, overlap: overlap.map(round) as [number, number, number] });
     }
   }
   return out;
+}
+
+/** The faces of a shell that the block really cuts into, as collisions against the face's own box. */
+async function shellCollisions(client: BridgeClient, step: string, shell: Found, box: Bounds, hiddenTags: Set<string>): Promise<Collision[]> {
+  const res = await client.call("facesInBox", { target: { entityId: shell.entityId }, box: shrink(box, TOUCH), limit: MAX_FACES });
+  if (!res.ok) throw new Error(`collision check for ${step}: reading the faces of "${label(shell)}" failed: ${res.error.code}: ${res.error.message}`);
+  if (res.data.truncated || res.data.scanLimitHit) {
+    throw new Error(
+      `collision check for ${step}: "${label(shell)}" holds ${res.data.entityCount} things and was too big to read, so it was NOT checked ` +
+        "(it is raw geometry, not a part: look at the screenshot, or build somewhere else)",
+    );
+  }
+  const cut = res.data.faces.filter((f) => !hiddenTags.has(f.tag) && faceIsCut(box, f.bounds));
+  if (cut.length === 0) return [];
+  // One collision per shell: every face of it is the same wall or platform, and the repair slides clear of the lot.
+  const bounds: Bounds = {
+    min: [0, 1, 2].map((i) => Math.min(...cut.map((f) => f.bounds.min[i]!))) as Bounds["min"],
+    max: [0, 1, 2].map((i) => Math.max(...cut.map((f) => f.bounds.max[i]!))) as Bounds["max"],
+  };
+  const overlap = [0, 1, 2].map((i) => round(Math.min(box.max[i]!, bounds.max[i]!) - Math.max(box.min[i]!, bounds.min[i]!))) as [number, number, number];
+  return [{ step, with: `${label(shell)} (${cut.length} face${cut.length > 1 ? "s" : ""})`, path: shell.path, bounds, overlap }];
 }
 
 /**

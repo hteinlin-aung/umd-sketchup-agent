@@ -14,7 +14,7 @@ import type { Transport } from "./transport";
  * passing mock tests != the real bridge works. Real proof = `npm run smoke` on Windows.
  */
 
-type MockFace = { normal: Vec3; material: string | null; backMaterial: string | null };
+type MockFace = { normal: Vec3; material: string | null; backMaterial: string | null; bounds?: Bounds };
 
 export type MockEntity = {
   entityId: number;
@@ -249,6 +249,9 @@ export class MockSketchUp implements Transport {
         return { data: this.findEntities(args as ArgsOut<"findEntities">), modified: false, warnings: [] };
       case "inspectEntity":
         return { data: this.inspectEntity(args as ArgsOut<"inspectEntity">), modified: false, warnings: [] };
+      case "facesInBox":
+        return { data: this.facesInBox(args as ArgsOut<"facesInBox">), modified: false, warnings: [] };
+
       case "measure":
         return { data: this.measure(args as ArgsOut<"measure">), modified: false, warnings: [] };
       case "createPrism":
@@ -430,6 +433,24 @@ export class MockSketchUp implements Transport {
       childCount: this.children(e.entityId).length,
       insideSharedComponent: false,
     };
+  }
+
+  /** The faces of one group that overlap a box. Only faces given explicit bounds in the scene are returned. */
+  private facesInBox(a: ArgsOut<"facesInBox">) {
+    const e = this.resolve(a.target);
+    const faces: { bounds: Bounds; tag: string; material: string | null }[] = [];
+    let scanned = 0;
+    let truncated = false;
+    for (const f of e.faces) {
+      scanned++;
+      if (!f.bounds || !overlaps(f.bounds, a.box)) continue;
+      if (faces.length >= a.limit) {
+        truncated = true;
+        break;
+      }
+      faces.push({ bounds: f.bounds, tag: e.tag, material: f.material });
+    }
+    return { faces, truncated, scanned, entityCount: e.faces.length, scanLimitHit: false };
   }
 
   private inspectEntity(a: ArgsOut<"inspectEntity">) {

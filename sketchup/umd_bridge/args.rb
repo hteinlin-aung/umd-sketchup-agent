@@ -259,6 +259,15 @@ module UMDBridge
       }
     end
 
+    def facesInBox(a)
+      Args.only!(a, %w[target box limit])
+      {
+        'target' => Args.target(a, 'target'),
+        'box' => Args.bounds(a, 'box'),
+        'limit' => Args.int(a, 'limit', 1, 2000, 400)
+      }
+    end
+
     def inspectEntity(a)
       Args.only!(a, %w[target maxChildren])
       { 'target' => Args.target(a, 'target'), 'maxChildren' => Args.int(a, 'maxChildren', 0, 200, 50) }

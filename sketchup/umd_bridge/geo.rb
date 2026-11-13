@@ -35,6 +35,37 @@ module UMDBridge
       bb
     end
 
+    # The search box (world, metres) in ONE entity's own coordinates (inches), so each face can be tested
+    # against it with its own cheap local bounds instead of transforming every corner of every face.
+    def local_bbox(box, world_tr)
+      inv = world_tr.inverse
+      bb = Geom::BoundingBox.new
+      [0, 1].each do |xi|
+        [0, 1].each do |yi|
+          [0, 1].each do |zi|
+            x = box[xi.zero? ? 'min' : 'max'][0]
+            y = box[yi.zero? ? 'min' : 'max'][1]
+            z = box[zi.zero? ? 'min' : 'max'][2]
+            bb.add(inv * Geom::Point3d.new(m2i(x), m2i(y), m2i(z)))
+          end
+        end
+      end
+      bb
+    end
+
+    def bbox_overlaps?(a, b)
+      a.min.x <= b.max.x && a.max.x >= b.min.x &&
+        a.min.y <= b.max.y && a.max.y >= b.min.y &&
+        a.min.z <= b.max.z && a.max.z >= b.min.z
+    end
+
+    # The world box of ONE face (a flat box: zero thickness on its own axis when it is axis-aligned).
+    def face_bbox(face, world_tr)
+      bb = Geom::BoundingBox.new
+      face.vertices.each { |v| bb.add(world_tr * v.position) }
+      bb
+    end
+
     def container?(e)
       e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
     end

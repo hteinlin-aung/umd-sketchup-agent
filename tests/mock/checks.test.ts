@@ -5,9 +5,10 @@ import { executePlan } from "../../src/agent/execute";
 import { resolveDraft } from "../../src/agent/resolve";
 import { BridgeClient } from "../../src/bridge/client";
 import { MockSketchUp } from "../../src/bridge/mockSketchUp";
+import type { Bounds } from "../../src/protocol/tools";
 import { parseBrief } from "../../src/agent/brief";
 import { briefRules } from "../../src/agent/planner";
-import { checkAndRepair, findCollisions, verifyRun } from "../../src/geometry/checks";
+import { checkAndRepair, faceIsCut, findCollisions, isShell, verifyRun } from "../../src/geometry/checks";
 import { summarizeRoom } from "../../src/summary/roomSummary";
 
 // MOCK: Week 3 geometry checks on the fake reception room (real positions, simplified parts).
@@ -29,7 +30,73 @@ const setup = async () => {
 const column = (sketchup: MockSketchUp, roomId: number, x0: number, y0: number, x1: number, y1: number, name = "column C7") =>
   sketchup.addEntity({ type: "Group", name, tag: "Layer0", parentId: roomId, bounds: { min: [x0, y0, 1.489], max: [x1, y1, 4.99] } });
 
+// Windows, 2026-11-13 (brief 5 in T133): the check only looked inside the room group, so it never saw the timber
+// screen, the platforms or the walls - and those walls are raw geometry whose ONE box covers a whole room.
+describe("shells: a box too big to be a part", () => {
+  const block = { min: [34.6, 72.74, 1.489], max: [35.05, 75.74, 1.939] } as Bounds;
+
+  it("the 1F walls group (its box covers the whole breathing room) is a shell, a slat and a column are not", () => {
+    expect(isShell({ min: [14.33, 68.99, 1.49], max: [34.88, 79.34, 5.41] }, block)).toBe(true); // Group#276
+    expect(isShell({ min: [34.95, 69.38, 1.49], max: [35.25, 69.42, 5.31] }, block)).toBe(false); // a B2 slat
+    expect(isShell({ min: [33.84, 79.48, 1.06], max: [34.34, 79.98, 5.3] }, block)).toBe(false); // a column
+    expect(isShell({ min: [0.53, 68.01, 1.49], max: [147.14, 113.09, 1.49] }, block)).toBe(true); // the flat floor plate
+  });
+
+  it("standing on a floor face or against a wall face is not a collision; crossing one is", () => {
+    const floor = { min: [0, 0, 1.489], max: [50, 100, 1.489] } as Bounds;
+    expect(faceIsCut(block, floor)).toBe(false); // the bench stands on it
+    const wall = { min: [34.6, 60, 1.49], max: [34.6, 80, 5] } as Bounds;
+    expect(faceIsCut(block, wall)).toBe(false); // the bench's west side touches it
+    const through = { min: [34.8, 60, 1.49], max: [34.8, 80, 5] } as Bounds;
+    expect(faceIsCut(block, through)).toBe(true); // the bench crosses this one
+    const buried = { min: [0, 0, 1.7], max: [50, 100, 1.7] } as Bounds;
+    expect(faceIsCut(block, buried)).toBe(true); // a floor face through the middle of the bench
+  });
+});
+
 describe("collision checks against the real parts", () => {
+  /** A shell like "1F Walls & partitions > Group#276": one huge box, with faces where the material really is. */
+  const shell = (sketchup: MockSketchUp, faces: Bounds[]) =>
+    sketchup.addEntity({
+      type: "Group",
+      name: "1F walls (raw geometry)",
+      tag: "Layer0",
+      parentId: null,
+      bounds: { min: [70, 84, 1.489], max: [103, 111, 5.41] },
+      faces: faces.map((b) => ({ normal: [0, 0, 1] as [number, number, number], material: null, backMaterial: null, bounds: b })),
+    });
+
+  it("a shell's own box never collides: its faces decide (brief 1 still passes)", async () => {
+    const { client, summary, sketchup, resolve } = await setup();
+    shell(sketchup, [{ min: [70, 84, 1.489], max: [103, 111, 1.489] }]); // just a floor face, under everything
+    expect(await findCollisions(client, resolve(REF), summary)).toEqual([]);
+  });
+
+  it("a face the block really crosses is a collision, named with the shell", async () => {
+    const { client, summary, sketchup, resolve } = await setup();
+    const plan = resolve(REF);
+    const box = plan.actions.find((a) => a.builds === "S1")!.box!;
+    const mid = (i: number) => (box.min[i]! + box.max[i]!) / 2;
+    shell(sketchup, [{ min: [mid(0), 84, mid(2)], max: [mid(0), 111, mid(2)] }]); // a plane through the counter
+    const hits = await findCollisions(client, plan, summary);
+    expect(hits.map((h) => h.step)).toEqual(["S1"]);
+    expect(hits[0]!.with).toMatch(/1F walls \(raw geometry\) \(1 face\)/);
+  });
+
+  it("a shell that can't be read fully is an error, never 'clear'", async () => {
+    const { client, summary, sketchup, resolve } = await setup();
+    const plan = resolve(REF);
+    const box = plan.actions.find((a) => a.builds === "S1")!.box!;
+    const one = { min: [box.min[0]!, box.min[1]!, box.min[2]!], max: [box.max[0]!, box.max[1]!, box.max[2]!] } as Bounds;
+    const many = shell(sketchup, Array.from({ length: 3 }, () => one));
+    expect(many.faces.length).toBe(3);
+    const limited = {
+      call: async (tool: string, args: Record<string, unknown>) =>
+        tool === "facesInBox" ? client.call("facesInBox", { ...args, limit: 1 } as never) : client.call(tool as never, args as never),
+    } as unknown as BridgeClient;
+    await expect(findCollisions(limited, plan, summary)).rejects.toThrow(/was NOT checked/);
+  });
+
   it("brief 1's reference plan cuts into nothing", async () => {
     const { client, summary, resolve } = await setup();
     expect(await findCollisions(client, resolve(REF), summary)).toEqual([]);

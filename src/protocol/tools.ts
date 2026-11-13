@@ -240,6 +240,23 @@ export const FindEntitiesData = z.object({
   scanLimitHit: z.boolean(), // the model was too big to search completely; narrow the search
 });
 
+// ---------- facesInBox (Week 3) ----------
+
+export const FacesInBoxArgs = z
+  .strictObject({
+    target: Target, // the group whose own faces are wanted
+    box: z.strictObject({ min: Vec3, max: Vec3 }), // only faces whose world box overlaps this (metres)
+    limit: z.number().int().min(1).max(2_000).default(400),
+  })
+  .refine((a) => a.box.min.every((v, i) => v <= a.box.max[i]!), { message: "box.min must not be greater than box.max", path: ["box"] });
+export const FacesInBoxData = z.object({
+  faces: z.array(z.object({ bounds: Bounds, tag: z.string(), material: z.string().nullable() })),
+  truncated: z.boolean(), // more faces overlap than `limit`
+  scanned: z.number().int(),
+  entityCount: z.number().int(), // everything inside the group; too many and nothing is scanned at all
+  scanLimitHit: z.boolean(), // too big, or took too long: NOT checked (never read this as "clear")
+});
+
 // ---------- inspectEntity (Week 2) ----------
 
 export const InspectEntityArgs = z.strictObject({
@@ -453,6 +470,7 @@ export const TOOLS = {
   saveCopy: { args: SaveCopyArgs, data: SaveCopyData, kind: "file", changesModel: false },
   findEntities: { args: FindEntitiesArgs, data: FindEntitiesData, kind: "read", changesModel: false },
   inspectEntity: { args: InspectEntityArgs, data: InspectEntityData, kind: "read", changesModel: false },
+  facesInBox: { args: FacesInBoxArgs, data: FacesInBoxData, kind: "read", changesModel: false },
   measure: { args: MeasureArgs, data: MeasureData, kind: "read", changesModel: false },
   createPrism: { args: CreatePrismArgs, data: CreatePrismData, kind: "write", changesModel: true },
   setTag: { args: SetTagArgs, data: SetTagData, kind: "write", changesModel: true },

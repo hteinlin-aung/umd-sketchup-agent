@@ -10,6 +10,9 @@ module UMDBridge
     def self.world_bbox(entity, _tr); entity.fake_bounds; end
     def self.bounds_m(bb); bb; end
     def self.overlaps?(bb, box); (0..2).all? { |i| bb['min'][i] <= box['max'][i] && bb['max'][i] >= box['min'][i] }; end
+    def self.face_bbox(face, _tr); face.fake_bounds; end
+    # The real one builds a Geom::BoundingBox to reject faces cheaply; nil just means "no quick reject here".
+    def self.local_bbox(_box, _tr); nil; end
   end
 end
 
@@ -28,7 +31,7 @@ class TreeModel < FakeModel
     until stack.empty?
       e = stack.shift
       return e if e.entityID == id
-      stack.concat(e.definition.entities)
+      stack.concat(e.definition ? e.definition.entities : [])
     end
     nil
   end
@@ -58,6 +61,10 @@ class ReadToolsTest < Minitest::Test
                                      children: [@reception, @col_a, @col_b])
     @model = TreeModel.new('E:/x/dev/UMD_DEV_1F.skp', [@floor])
     Sketchup.active_model = @model
+  end
+
+  def faces(args)
+    UMDBridge::Tools.facesInBox(UMDBridge::Validate.facesInBox(args), { warnings: [] })
   end
 
   def find(args)
@@ -124,6 +131,54 @@ class ReadToolsTest < Minitest::Test
     r = find('within' => { 'path' => ['UMD 1F', '1F RECEPTION (T128)'] })
     assert_equal ['Reception bench - light oak', 'Reception ceiling'], r['matches'].map { |m| m['name'] }
     assert_equal ['UMD 1F', '1F RECEPTION (T128)', 'Reception ceiling'], r['matches'].last['path']
+  end
+
+  # Windows, 2026-11-13: "1F Walls & partitions > Group#276" is one leaf whose box covers the whole breathing
+  # room. The collision check asks for its faces instead of using that box.
+  def test_faces_in_box_returns_only_the_faces_that_overlap
+    near = Sketchup::Face.new('Layer0', 'plaster', { 'min' => [12, 6, 1.49], 'max' => [14, 6, 3.0] })
+    far = Sketchup::Face.new('Layer0', nil, { 'min' => [30, 6, 1.49], 'max' => [32, 6, 3.0] })
+    shell = FakeGroup.new('1F walls (raw geometry)', bounds: { 'min' => [0, 0, 1.49], 'max' => [40, 20, 5] }, children: [near, far])
+    @model = TreeModel.new('E:/x/dev/UMD_DEV_1F.skp', [shell])
+    Sketchup.active_model = @model
+    r = faces('target' => { 'entityId' => shell.entityID }, 'box' => { 'min' => [11, 5.5, 1.5], 'max' => [13, 6.5, 2.0] })
+    assert_equal 1, r['faces'].length
+    assert_equal 'plaster', r['faces'].first['material']
+    assert_equal({ 'min' => [12, 6, 1.49], 'max' => [14, 6, 3.0] }, r['faces'].first['bounds'])
+    refute r['truncated']
+    refute r['scanLimitHit']
+  end
+
+  def test_faces_in_box_sets_truncated_so_the_check_never_says_clear
+    faces_list = Array.new(3) { Sketchup::Face.new('Layer0', nil, { 'min' => [12, 6, 1.49], 'max' => [14, 6, 3.0] }) }
+    shell = FakeGroup.new('wall', bounds: { 'min' => [0, 0, 1.49], 'max' => [40, 20, 5] }, children: faces_list)
+    @model = TreeModel.new('E:/x/dev/UMD_DEV_1F.skp', [shell])
+    Sketchup.active_model = @model
+    r = faces('target' => { 'entityId' => shell.entityID }, 'box' => { 'min' => [11, 5.5, 1.5], 'max' => [13, 6.5, 2.0] }, 'limit' => 2)
+    assert_equal 2, r['faces'].length
+    assert r['truncated']
+  end
+
+  # Windows, 2026-11-13: reading every face of the raw 1F walls group froze SketchUp. A group this big is
+  # not opened at all, and the answer says so instead of looking "clear".
+  def test_faces_in_box_refuses_a_group_too_big_to_read
+    wall = Sketchup::Face.new('Layer0', nil, { 'min' => [12, 6, 1.49], 'max' => [14, 6, 3.0] })
+    shell = FakeGroup.new('raw walls', bounds: { 'min' => [0, 0, 1.49], 'max' => [40, 20, 5] }, children: [wall, wall, wall])
+    @model = TreeModel.new('E:/x/dev/UMD_DEV_1F.skp', [shell])
+    Sketchup.active_model = @model
+    was = UMDBridge::Tools::MAX_SCAN_ENTITIES
+    UMDBridge::Tools.send(:remove_const, :MAX_SCAN_ENTITIES)
+    UMDBridge::Tools.const_set(:MAX_SCAN_ENTITIES, 2)
+    begin
+      r = faces('target' => { 'entityId' => shell.entityID }, 'box' => { 'min' => [11, 5.5, 1.5], 'max' => [13, 6.5, 2.0] })
+      assert r['scanLimitHit']
+      assert_empty r['faces']
+      assert_equal 0, r['scanned']
+      assert_equal 3, r['entityCount']
+    ensure
+      UMDBridge::Tools.send(:remove_const, :MAX_SCAN_ENTITIES)
+      UMDBridge::Tools.const_set(:MAX_SCAN_ENTITIES, was)
+    end
   end
 
   def test_measure_lists_every_surface_downwards_with_distances

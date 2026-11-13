@@ -5,6 +5,9 @@ module UMDBridge
     # A full walk of the 600 MB master can visit tens of thousands of groups and
     # freeze SketchUp for a long time. Past this, stop and say so (scanLimitHit).
     SCAN_LIMIT = 30_000
+    # facesInBox only: a group holding more than this is not opened at all, and no face scan runs longer than this.
+    MAX_SCAN_ENTITIES = 20_000
+    TIME_BUDGET_S = 5
     SQ_M_PER_SQ_IN = 0.0254 * 0.0254
 
     module_function
@@ -96,6 +99,60 @@ module UMDBridge
         'instanceCount' => e.definition.count_instances,
         'childCount' => e.definition.entities.count { |c| Geo.container?(c) },
         'insideSharedComponent' => inside_shared ? true : false
+      }
+    end
+
+    # The faces of ONE group that overlap a box, each with its own world box.
+    #
+    # Why: some groups in the model are not parts but shells - "1F Walls & partitions > Group#276" is raw
+    # geometry whose single box covers the whole breathing room. Treating that box as a part would put every
+    # new piece of furniture "inside a wall". The faces are where the material really is, so the collision
+    # check asks for them instead (Windows, 2026-11-13).
+    def facesInBox(args, _ctx)
+      model = Sketchup.active_model
+      e, world_tr = Geo.resolve(model, args['target'])
+      box = args['box']
+      faces = []
+      scanned = 0
+      truncated = false
+      limit_hit = false
+      ents = e.definition.entities
+      count = ents.length
+      # Reading a group this big freezes SketchUp for minutes, so don't start (Windows, 2026-11-13: the raw 1F
+      # walls group). Saying "not checked" is the honest answer; the caller must never read it as "clear".
+      if count > MAX_SCAN_ENTITIES
+        return { 'faces' => [], 'truncated' => false, 'scanned' => 0, 'entityCount' => count, 'scanLimitHit' => true }
+      end
+
+      local = Geo.local_bbox(box, world_tr)
+      started = Time.now
+      ents.each do |f|
+        next unless f.is_a?(Sketchup::Face)
+        if scanned >= SCAN_LIMIT || (scanned % 2_000).zero? && Time.now - started > TIME_BUDGET_S
+          limit_hit = true
+          break
+        end
+        scanned += 1
+        # Cheap reject first: SketchUp keeps each face's own box, so most faces never need transforming.
+        next if local && f.respond_to?(:bounds) && !Geo.bbox_overlaps?(f.bounds, local)
+        bb = Geo.face_bbox(f, world_tr)
+        next unless Geo.overlaps?(bb, box)
+        if faces.length >= args['limit']
+          truncated = true
+          break
+        end
+        faces << {
+          'bounds' => Geo.bounds_m(bb) || { 'min' => [0, 0, 0], 'max' => [0, 0, 0] },
+          'tag' => f.layer.name,
+          'material' => f.material ? f.material.name : nil
+        }
+      end
+      {
+        'faces' => faces,
+        'truncated' => truncated,
+        'scanned' => scanned,
+        'entityCount' => count,
+        'scanLimitHit' => limit_hit
       }
     end
 
