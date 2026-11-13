@@ -629,6 +629,18 @@ describe("an item name where a ref belongs (2F names look like identifiers)", ()
     expect(p).not.toMatch(/like "R1"/);
   });
 
+  // Windows, 2026-11-14 (run 013801): the shelf came without "base", so it stood on the floor inside the bench, and
+  // the reply "check eastWest/northSouth and shift" pointed at the wrong fields.
+  it("the towel shelf without base gets the exact value from the change text; with it, it is accepted", () => {
+    const bench1 = checkAnswer(bench("WALL_LimePlaster_North"), change1, [], 1, pool, opts, brief);
+    const done = bench1.answer!.steps.map((st) => ({ ...st, line: 1 })) as DraftStep[];
+    const change2 = brief.changes.find((c) => c.line === 2)!;
+    const shelf = (base?: number) =>
+      JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S2", name: "Towel shelf", placement: { kind: "beside", anchor: "WALL_LimePlaster_North", side: "south", gap: 0, eastWest: 1.6, northSouth: 0.25, shift: -3.2 }, height: 0.04, ...(base === undefined ? {} : { base }), tag: "2F Pool - Furniture (AGENT)" }], reason: "" });
+    expect(checkAnswer(shelf(), change2, done, 2, pool, opts, brief).problems).toEqual(['the change puts the bottom of S2 1.5 m above the floor: set "base": 1.5 (now 0)']);
+    expect(checkAnswer(shelf(1.5), change2, done, 2, pool, opts, brief).problems).toEqual([]);
+  });
+
   it("the model's second answer (R1, the floor finish) is still refused", () => {
     expect(checkAnswer(bench("R1"), change1, [], 1, pool, opts, brief).problems.join()).toMatch(/S1 ends up outside the room/);
   });

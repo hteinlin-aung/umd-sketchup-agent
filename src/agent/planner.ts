@@ -373,6 +373,7 @@ export function checkAnswer(
   }
 
   problems.push(...stepsFitTheChange(answer, change, done, summary, brief));
+  problems.push(...raisedAsAsked(answer, change));
 
   const keys = answer.steps.map((s) => JSON.stringify(s));
   if (new Set(keys).size < keys.length) problems.push("the same step appears more than once");
@@ -420,11 +421,31 @@ export function checkAnswer(
       }
       for (const w of a.warnings) {
         const m = w.match(/it overlaps (S\d+) "/);
-        if (m) problems.push(`${a.builds} overlaps ${m[1]}, another new block: check eastWest/northSouth and shift`);
+        if (m) problems.push(`${a.builds} overlaps ${m[1]}, another new block: check eastWest/northSouth, shift and base (how high its bottom is above the floor)`);
       }
     }
   }
   return { answer, problems };
+}
+
+/**
+ * "its underside 1.5 m above the floor": the change gives the height of the block's bottom, so give the model the
+ * exact value for "base" when it is missing or different. (Windows, 2026-11-14, brief 7: qwen3:8b left "base" out of
+ * the towel shelf - every example in the prompt has base 0 - so the shelf stood on the floor inside the bench, and
+ * the hint "check eastWest/northSouth and shift" pointed at the wrong fields.) Only for blocks placed beside an
+ * item: "onTop" ignores base. Only when the change names exactly one height above the floor.
+ */
+function raisedAsAsked(answer: ChangeAnswer, change: BriefChange): string[] {
+  const heights = [...change.text.matchAll(/(\d+(?:\.\d+)?)\s*m\s+above\s+the\s+floor/gi)].map((m) => Number(m[1]));
+  if (new Set(heights).size !== 1) return [];
+  const want = heights[0]!;
+  const out: string[] = [];
+  for (const st of answer.steps) {
+    if (st.op !== "build" || st.placement.kind !== "beside") continue;
+    const base = st.base ?? 0;
+    if (Math.abs(base - want) > 0.005) out.push(`the change puts the bottom of ${st.id} ${want} m above the floor: set "base": ${want} (now ${base})`);
+  }
+  return out;
 }
 
 /**
