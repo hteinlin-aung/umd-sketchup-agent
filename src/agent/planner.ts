@@ -1,4 +1,4 @@
-import { measureOnlyItems, runsWhichWay, type RoomSummary } from "../summary/roomSummary";
+import { measureOnlyItems, mentions, runsWhichWay, type RoomSummary } from "../summary/roomSummary";
 import type { Brief, BriefChange } from "./brief";
 import { renderCatalog, type Catalog } from "./catalog";
 import { ChangeAnswer, changeAnswerJsonSchema, type ChangeStep, type Draft, type DraftStep } from "./draft";
@@ -224,7 +224,7 @@ export async function planBrief(
     const firstId = nextBuildNumber(steps);
     const messages: ChatMessage[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: changeQuestion(brief, change, summaryText, steps, firstId, opts.catalog) },
+      { role: "user", content: changeQuestion(brief, change, summaryText, steps, firstId, opts.catalog, summary) },
     ];
     let accepted: ChangeAnswer | null = null;
     let problems: string[] = [];
@@ -274,8 +274,11 @@ export async function planBrief(
   return { draft: { steps, notDone }, answers, outcomes };
 }
 
-function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, done: DraftStep[], firstId: number, catalog?: Catalog): string {
+function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, done: DraftStep[], firstId: number, catalog?: Catalog, summary?: RoomSummary): string {
   const builds = done.filter(isNew).map((s) => `${s.id} = "${s.name}" (change ${s.line})`);
+  // Say which V ref the change's room is, next to the question. (Windows, 2026-11-14, brief 9: qwen3:8b wrote V5
+  // "Therapy 2" for "In Therapy 1" twice, with "Therapy 1" in its own reason; V4's parts sat between the two lines.)
+  const named = summary ? namedSubRooms(change.text, summary) : [];
   return [
     `ROOM SUMMARY:\n${summaryText}`,
     ...(catalog ? [renderCatalog(catalog)] : []),
@@ -283,6 +286,7 @@ function changeQuestion(brief: Brief, change: BriefChange, summaryText: string, 
     builds.length ? `Already planned blocks: ${builds.join("; ")}` : "Nothing built yet.",
     EXAMPLE,
     `Now plan ONLY change ${change.line}: "${change.text}"`,
+    ...(named.length ? [`Sub-rooms named in this change: ${named.map((r) => `"${r.name}" = ${r.ref}`).join(", ")}.`] : []),
     `New build ids for this change: S${firstId}, S${firstId + 1}, ... in order.`,
   ].join("\n\n");
 }
@@ -354,8 +358,16 @@ export function namesToRefs(json: unknown, summary: RoomSummary, notes: string[]
 }
 
 /** A change gives sizes in metres, or asks to add or build: something new is wanted ("A built-in bench ... 6.0 m long"). */
-function asksForSomethingNew(t: string): boolean {
+function asksForSomethingNew(text: string): boolean {
+  // "Put everything new on the tag ..." is a rule about the new pieces, not a request for one. (Windows, 2026-11-14,
+  // brief 9: change 3 "Tags" rebuilt the bench and the shelf beside a task chair, and nothing objected.)
+  const t = text.replace(/\b(?:everything|all|anything|each|every)\s+new\b|\bnew\s+(?:ones|pieces|blocks|items|things|shapes)\b/gi, "");
   return /\d(\.\d+)?\s*m\b/.test(t) || /\b(add|new|build|top|place)\b/i.test(t);
+}
+
+/** The sub-rooms a change names ("In Therapy 1, ..." -> V4; not "Therapy 10"). */
+function namedSubRooms(text: string, summary: RoomSummary): { ref: string; name: string }[] {
+  return (summary.subRooms ?? []).filter((r) => mentions(text, r.name));
 }
 
 /** Words that mean a change asks for something to be DONE (not only a rule for the other changes). */
@@ -548,6 +560,34 @@ function stepsFitTheChange(answer: ChangeAnswer, change: BriefChange, done: Draf
     if (st.placement.kind === "beside" && ON_SOMETHING.test(t) && done.some((d) => d.op === "build")) {
       problems.push(`change ${change.line} puts it ON an earlier block: use "onTop" with that block's id, not "beside"`);
     }
+  }
+  // The change names ONE sub-room; a block measured from another sub-room, or from one of its parts, is in the wrong
+  // room (brief 9: V5 "Therapy 2" for "In Therapy 1").
+  const named = namedSubRooms(t, summary);
+  if (named.length === 1) {
+    const want = named[0]!;
+    const roomOf = new Map<string, { ref: string; name: string }>();
+    for (const r of summary.subRooms ?? []) {
+      roomOf.set(r.ref, r);
+      for (const p of r.parts) roomOf.set(p.ref, r);
+    }
+    for (const st of answer.steps) {
+      if ((st.op !== "build" && st.op !== "place") || st.placement.kind === "onTop") continue;
+      const room = roomOf.get(st.placement.anchor);
+      if (room && room.ref !== want.ref) {
+        problems.push(`change ${change.line} is about "${want.name}" = ${want.ref}, but ${st.id} is measured from ${st.placement.anchor} in "${room.name}" (${room.ref}); use "anchor":"${want.ref}"`);
+      }
+    }
+  }
+  // The same block again (name and size) in a later change: a rule change copying the earlier work (brief 9, change 3).
+  for (const st of answer.steps) {
+    if (st.op !== "build" || st.placement.kind === "onTop") continue;
+    const p = st.placement;
+    const twin = done
+      .filter((d): d is Extract<DraftStep, { op: "build" }> => d.op === "build")
+      .find((d) => d.placement.kind !== "onTop" && d.name.trim().toLowerCase() === st.name.trim().toLowerCase()
+        && d.height === st.height && d.placement.eastWest === p.eastWest && d.placement.northSouth === p.northSouth);
+    if (twin) problems.push(`${st.id} repeats ${twin.id} "${twin.name}" from change ${twin.line}, which is already planned; change ${change.line} does not ask for it again`);
   }
   // "in Therapy 1" planned as "beside V4" lands OUTSIDE that room (the summary's sub-rooms are rooms, not objects).
   const subRefs = new Map((summary.subRooms ?? []).map((r) => [r.ref, r.name]));

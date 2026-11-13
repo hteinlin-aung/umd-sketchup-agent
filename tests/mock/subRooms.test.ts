@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Draft, type DraftStep } from "../../src/agent/draft";
-import { checkAnswer, namesToRefs } from "../../src/agent/planner";
+import { parseBrief } from "../../src/agent/brief";
+import type { Llm } from "../../src/agent/llm";
+import { checkAnswer, namesToRefs, planBrief } from "../../src/agent/planner";
 import { resolveDraft } from "../../src/agent/resolve";
 import { sameCollisions } from "../../src/geometry/checks";
 import { mentions, renderSummary } from "../../src/summary/roomSummary";
@@ -128,6 +130,35 @@ describe("the planner and sub-rooms", () => {
   it("accepts the inside answer", () => {
     const answer = JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Bench", placement: { kind: "inside", anchor: "V2", side: "south", gap: 0.1, eastWest: 2.4, northSouth: 0.4, shift: -2.485 }, height: 0.45, tag: "T" }], reason: "" });
     expect(checkAnswer(answer, change, [], 1, t124(), OPTS).problems).toEqual([]);
+  });
+
+  // Replays of Tyson's AI run 052135 (2026-11-14): qwen3:8b wrote V5 "Therapy 2" for "In Therapy 1", and the "Tags"
+  // change rebuilt both pieces beside a task chair.
+  it("refuses the wrong sub-room when the change names one (V3 'Therapy 2' for 'In Therapy 1')", () => {
+    const answer = JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Bench", placement: { kind: "inside", anchor: "V3", side: "south", gap: 0.1, eastWest: 2.4, northSouth: 0.4, shift: -2.485 }, height: 0.45, tag: "T" }], reason: "" });
+    expect(checkAnswer(answer, change, [], 1, t124(), OPTS).problems.join()).toMatch(/change 1 is about "Therapy 1" = V2, but S1 is measured from V3 in "Therapy 2" \(V3\); use "anchor":"V2"/);
+    const fromPart = JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Bench", placement: { kind: "beside", anchor: "R19", side: "south", gap: 0.1, eastWest: 2.4, northSouth: 0.4, shift: 0 }, height: 0.45, tag: "T" }], reason: "" });
+    expect(checkAnswer(fromPart, change, [], 1, t124(), OPTS).problems.join()).toMatch(/measured from R19 in "Therapy 2"/);
+  });
+
+  it('a "Tags" change that rebuilds the pieces is refused ("everything new" asks for nothing new)', () => {
+    const tags = { line: 3, text: "Tags. Put everything new on the tag `3F TP - Furniture (AGENT)`." };
+    const done: DraftStep[] = [{ op: "build", line: 1, id: "S1", name: "Bench - light oak", placement: { kind: "inside", anchor: "V2", side: "south", gap: 0.1, eastWest: 2.4, northSouth: 0.4, shift: -2.485 }, height: 0.45, base: 0, tag: "T" }];
+    const again = JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S2", name: "Bench - light oak", placement: { kind: "beside", anchor: "R16", side: "south", gap: 0.1, eastWest: 2.4, northSouth: 0.4, shift: -2.485 }, height: 0.45, tag: "T" }], reason: "" });
+    const problems = checkAnswer(again, tags, done, 2, t124(), OPTS).problems.join("\n");
+    expect(problems).toMatch(/change 3 doesn't ask to add anything new/);
+    expect(problems).toMatch(/S2 repeats S1 "Bench - light oak" from change 1, which is already planned/);
+    expect(checkAnswer(JSON.stringify({ type: "rule", steps: [], reason: "" }), tags, done, 2, t124(), OPTS).problems).toEqual([]);
+  });
+
+  it("tells the model the V ref of the room the change names, next to the question", async () => {
+    const questions: string[] = [];
+    const llm: Llm = async (messages) => {
+      questions.push(messages[1]!.content);
+      return JSON.stringify({ type: "steps", steps: [{ op: "build", id: "S1", name: "Bench", placement: { kind: "inside", anchor: "V2", side: "south", gap: 0.1, eastWest: 2.4, northSouth: 0.4, shift: -2.485 }, height: 0.45, tag: "T" }], reason: "" });
+    };
+    await planBrief(llm, parseBrief(`# t\n\n## Changes for now\n\n1. ${change.text}\n`), t124(), "summary", OPTS);
+    expect(questions[0]).toMatch(/Sub-rooms named in this change: "Therapy 1" = V2\./);
   });
 
   it("turns a room name into its V ref", () => {
