@@ -6,7 +6,7 @@ of the model is saved with a report. The AI never writes SketchUp code, and the 
 
 Built for the *Urban Mind Detox* thesis model (SketchUp 2025).
 
-- Full plan, decisions and change log: [`PLAN.md`](PLAN.md)
+- Full plan, decisions and the latest change log: [`PLAN.md`](PLAN.md) (older entries: [`CHANGELOG.md`](CHANGELOG.md))
 - How the parts talk to each other: [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md)
 
 **Status (2026-11-14):** Weeks 1–3 done. Brief → AI plan → approval → built, checked and saved works in two
