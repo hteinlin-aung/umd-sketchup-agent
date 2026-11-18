@@ -1,6 +1,6 @@
 # UMD SketchUp Agent — PLAN
 
-*Created 2026-10-29 · Deadline 2026-11-26 (4 weeks) · Status: **Week 1 DONE 2026-10-29** · **Week 2 DONE 2026-11-12** (brief → qwen3:8b plan → approval → built and saved, 15/15) · **Week 3 DONE 2026-11-14** (whole-model checks, components, scenes, clear outcomes) · Week 4 next*
+*Created 2026-10-29 · No deadline and no feature freeze (removed 2026-11-19; was 2026-11-26): work goes into this plan and carries on as normal · Status: **Week 1 DONE 2026-10-29** · **Week 2 DONE 2026-11-12** (brief → qwen3:8b plan → approval → built and saved, 15/15) · **Week 3 DONE 2026-11-14** (whole-model checks, components, scenes, clear outcomes) · Week 4 next*
 
 ## Summary
 
@@ -39,7 +39,7 @@ thesis design changes through this system instead of by hand.
 |---|---|---|---|
 | D1 | **Geometry comes from the existing .skp**, not the DXF | The model already has accurate walls, slabs, columns and stairs on all three floors. `umd_export_rooms.rb` already reads wall tops and floor plates in metres. In the 1F DXF only the west wing's walls are on `wall 1`; most walls are on `cafe`, mixed with furniture, drawn as single lines, with no door/window layers. The LibreDWG conversion also lost 30 dynamic blocks. | Can't yet go "DWG → building from nothing". Optional later step: clean the DXF layers (WALL / DOOR / WINDOW) and add a "build shell from clean DXF" mode (§9). |
 | D2 | **File-based JSON command queue** between TypeScript and SketchUp | Proven on this PC (the `umd_runner.rb` pattern built the whole thesis). No timeout on long jobs with a 600 MB model, survives SketchUp restarts, leaves an audit trail, easy to fake on the Mac. | 0.5 s polling delay. A socket can be added later for quick read-only queries. |
-| D3 | **Fixed list of Ruby tools; no `eval`** | Safety rule: the AI chooses tools, it never writes code. Unknown tools or bad parameters are rejected. | Each new ability needs a new tool to be written and tested. That's intended. |
+| D3 | **Fixed list of Ruby tools; no `eval`** (later: one exception, `runRuby`, for the Claude API only, see §9) | Safety rule: the AI chooses tools, it never writes code. Unknown tools or bad parameters are rejected. | Each new ability needs a new tool to be written and tested. That's intended. |
 | D4 | **TypeScript + Zod + Vitest; Ruby only inside SketchUp** | My chosen stack. Zod checks everything the AI returns. | Two languages. Ruby stays small and dumb; the logic lives in TypeScript. |
 | D5 | **Local model via Ollama, `qwen3:4b-instruct` first** | Already works for me (Stage 4). Measured on the RTX 4060: about 2.5 GB VRAM. | Small model, so its job stays narrow: instructions → structured operations. A larger model gets tested in week 3. |
 | D6 | **Plain loop + y/n approvals, no LangGraph yet** | My Stage 4b loop already does this. LangGraph only earns its place once there's real branching and pause/resume. | We may move to LangGraph after week 4. |
@@ -232,7 +232,7 @@ the approved targets.
 - `geometry/checks.ts`: inside the room, no overlaps with existing walls/columns, minimum clearances,
   heights, the material actually applied, nothing changed outside the job group.
 - Repair loop: issue → predefined fix → re-check → keep or roll back. Max 3 attempts per issue, then report.
-- Tools: `placeComponent`, `cutOpening`, `addScene`, `createMaterial`.
+- Tools: `placeComponent`, `cutOpening`, `addScene`, `createMaterial`. (`placeComponent` and `addScene` built; `cutOpening` and `createMaterial` were NOT built when Week 3 was marked done; moved to Week 4 on 2026-11-19.)
 - Screenshots after each milestone. Optional vision-model notes (flags only, never proof of correctness).
 - ~~Compare `qwen3:4b-instruct` with one larger model~~ done early (`npm run bench`, 2026-11-11/12): qwen3:8b chosen.
 - From the Week 2 finish: the size-direction check must follow the BLOCK, not only the change text it came from
@@ -242,11 +242,19 @@ the approved targets.
 **Done when:** a run with a deliberately wrong instruction (e.g. a built-in overlapping a column) is
 caught by a check, fixed by a predefined tool or reported honestly, and the run ends with a clear outcome.
 
-### Week 4 (Nov 19 – Nov 26): thesis testing + stabilising
+### Week 4 (from Nov 19, no end date): thesis testing + stabilising
 - Real tasks on all three floors, run against copies of the master.
 - Fix the integration bugs that show up. Add the edge cases found to the tests.
 - Furniture from a hand-picked local component folder, if the core is solid.
 - `README.md`: how to run it, and how to add a new tool (step-by-step).
+
+**Order of work (agreed 2026-11-19, no end date):**
+1. Chat in the panel + the panel makes the safe copy itself.
+2. **`cutOpening`** (rectangular door/window opening in a wall group) + **`createMaterial`** (colour and/or texture image with a real-world size), the two tools left over from Week 3.
+3. Component picture buttons tried in the panel; scenes inside a sub-room.
+4. Htain's own thesis brief/chat run end to end.
+5. Final pass on README + HOW-IT-WORKS.
+6. Claude API + `runRuby` (§9).
 
 **Done when:** I can write an instruction file for a thesis room, run it, approve the plan, and get a
 saved, checked `.skp` with screenshots and a run report, without writing Ruby myself.
@@ -294,6 +302,10 @@ ROG Strix Z790-E Gaming WiFi II (main slot can split x8/x8). Power supply wattag
 | LangGraph | A plain loop is enough for v1 | Real need for branching / pause-resume |
 | Socket for fast queries | The queue is enough for v1 | Same protocol, different transport |
 | Hosted models (Gemini etc.) | Local first, no cost | Provider interface already separate (`ai/`) |
+| **Claude API as the planner** (decided 2026-11-19) | Planned | A model adapter: one file per provider with the same "ask → JSON" function (Ollama + Claude API); Claude gets the tool list as native tool definitions; the small-model helper layers (one change at a time, sub-room hints) become switches, safety layers stay on. Other providers maybe later. No cost limit for now. |
+| **`runRuby`: Claude writes its own Ruby when no tool fits** (decided 2026-11-19, Plan A) | Planned, changes D3 | Tools first; only when no tool can do it, Claude proposes Ruby. Htain ALWAYS sees the code and presses Yes (he can ask Claude to explain it). Runs only on the copy, inside one SketchUp operation (abort on error), with a timeout; blocked: file delete, system commands, network, opening/saving files. Then the same checks, read-back and report (the code is saved in the report). Honest limit: Ruby inside SketchUp cannot be fully locked; the copy + approval + checks are the real protection. Never for the small local model. |
+| **Working code becomes a new tool** (decided 2026-11-19, Plan B) | After Plan A works | When `runRuby` code works and Htain likes the result, it is saved as a new fixed tool with a Zod schema and a test, so qwen can use it too. |
+| **Any SketchUp model; sharing later** (decided 2026-11-19) | Planned | Personal use first, on any model (safe copy next to it). Before sharing with other people: stricter rules for `runRuby`. |
 | Web UI | The command line is enough | The agent code stays the same |
 | 3D Warehouse search / download | No official API confirmed | A hand-picked local folder for now |
 | D5 automation, lighting analysis | Out of scope | — |
@@ -428,3 +440,6 @@ ROG Strix Z790-E Gaming WiFi II (main slot can split x8/x8). Power supply wattag
 - 2026-11-14: **Windows: Agent panel inside SketchUp (80c5be1, bridge 0.8.0) + page layout (69c8e16).** `sketchup/umd_bridge/panel.rb`: Extensions > UMD Bridge > Agent panel = one `UI::HtmlDialog` (1100 x 800, resizable, STYLE_DIALOG) on http://127.0.0.1:4477; opening it again brings it to the front. When nothing listens on the port (a 0.5 s TCP check from Ruby), it shows a local message "Start the page first: npm run ui ..., then press Reload" with a Reload button and re-checks every 5 s (the message is not set again while showing, so no flicker). On a SketchUp that loaded bridge 0.7.x, "Reload (after git pull)" adds "UMD Agent panel" straight under Extensions once (a submenu can't be found again to add to it). Ruby 199 (+7, fake HtmlDialog). **Tyson's tests on the PC:** browser page, brief 9 with the draft: SUCCESS, live lines, both screenshots and the report shown, Yes worked (run 055611). Panel in SketchUp, brief 9 with the AI: SUCCESS (run 060623), "everything works" - the panel showed the run live, the Yes click reached the agent, pictures and report shown. Then confirmed one by one (Tyson): the panel keeps updating while a tool runs (the lines keep moving during the save), and closing the panel mid-run leaves the run going (PowerShell carries on; reopening the panel shows the run again). Component buttons not tested (no 3F brief uses components). **Layout (Tyson: "texts sprawling out of the line"):** the right column could not shrink below its longest unbroken path, so the page grew past the window; now `minmax(0,1fr)` + `min-width:0`, long words wrap anywhere, earlier-runs rows wrap and the outcome pills never break ("MAX TRIES"); the brief list shows "<file> - <title>". Checked at 1600 px in the desktop app's browser pane: no sideways overflow.
 - 2026-11-14: **Interface DONE (Mac review of 80c5be1, 69c8e16, 86d4115, d7ba171).** Page + panel inside SketchUp (bridge 0.8.0) work on the PC: live during a 45 s save, closing the panel stops nothing, reopening shows the run. Untested: the component picture buttons (needs a brief that places components). **What is left before 2026-11-26:** (1) Htain writes and runs his OWN thesis brief through the panel (the real finish line); (2) one components brief through the panel; (3) scenes inside a sub-room (small); (4) feature freeze 2026-11-19, then only fixes; (5) final pass on README + HOW-IT-WORKS.
 - 2026-11-14: **Htain's decision: chat before the freeze, better chat after the deadline. Not started yet** (Htain has design questions first). Before 2026-11-19: (a) the panel makes the safe copy itself (open ANY model; the agent works on `<name>_AGENT_n.skp` next to it; no `UMD_DEV_` renaming); (b) a chat box: one message = one change, written to a brief file behind the scenes as the record; tag, material, screenshot and save added automatically; room from a dropdown of the open model's rooms; the agent asks a question instead of failing. Same tools, checks and Build button. After 2026-11-26: follow-ups ("move that one"), memory of the conversation, other projects (own floor levels and folder).
+- 2026-11-19: **Htain's decisions on bigger models (Mac chat), all for AFTER 2026-11-26.** The system stays model-independent (the model is only the planner). From now on the bigger model is the **Claude API** (others maybe later; no cost limit for now). Plan A + B: Claude may write its own Ruby (`runRuby`) only when no tool fits; Htain always sees the code and presses Yes; it runs only on the copy with the same checks; code that works is saved as a new tool (schema + test) so the small model can use it too. For personal use on any SketchUp model first; stricter rules before sharing. D3 and §9 updated. Nothing built.
+- 2026-11-19: **Htain: no deadline and no feature freeze any more.** The 2026-11-26 deadline and the 2026-11-19 freeze are dropped. Anything that needs building or fixing goes into this plan and carries on as normal. Order of work stays: chat in the panel + safe copy; component buttons and scenes in a sub-room; Htain's own thesis brief; README + HOW-IT-WORKS; then the Claude API + `runRuby` (§9).
+- 2026-11-19: **`cutOpening` and `createMaterial` back in the plan (Htain: yes).** Both were in §5 and Week 3 but were never built, and Week 3 was marked done without saying so (no decision to drop them was ever made). They are now step 2 of the Week 4 order, before Htain's own thesis brief, which may need doors, windows or new materials.
